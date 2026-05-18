@@ -152,6 +152,8 @@ export namespace scanner {
 	    match_codes: string;
 	    filter_codes: string;
 	    only_unprobed: boolean;
+	    only_ip: boolean;
+	    only_domain: boolean;
 	    skip_dns_failed: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -175,6 +177,8 @@ export namespace scanner {
 	        this.match_codes = source["match_codes"];
 	        this.filter_codes = source["filter_codes"];
 	        this.only_unprobed = source["only_unprobed"];
+	        this.only_ip = source["only_ip"];
+	        this.only_domain = source["only_domain"];
 	        this.skip_dns_failed = source["skip_dns_failed"];
 	    }
 	}
@@ -189,8 +193,10 @@ export namespace scanner {
 	    exclude_cdn: boolean;
 	    verify: boolean;
 	    only_ip: boolean;
+	    only_domain: boolean;
 	    only_alive: boolean;
 	    skip_dns_failed: boolean;
+	    use_ip_ports: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new NaabuConfig(source);
@@ -208,8 +214,10 @@ export namespace scanner {
 	        this.exclude_cdn = source["exclude_cdn"];
 	        this.verify = source["verify"];
 	        this.only_ip = source["only_ip"];
+	        this.only_domain = source["only_domain"];
 	        this.only_alive = source["only_alive"];
 	        this.skip_dns_failed = source["skip_dns_failed"];
+	        this.use_ip_ports = source["use_ip_ports"];
 	    }
 	}
 	export class RustscanConfig {
@@ -221,9 +229,11 @@ export namespace scanner {
 	    tries: number;
 	    no_cdn: boolean;
 	    only_ip: boolean;
+	    only_domain: boolean;
 	    only_alive: boolean;
 	    no_banner: boolean;
 	    skip_dns_failed: boolean;
+	    use_ip_ports: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new RustscanConfig(source);
@@ -239,9 +249,11 @@ export namespace scanner {
 	        this.tries = source["tries"];
 	        this.no_cdn = source["no_cdn"];
 	        this.only_ip = source["only_ip"];
+	        this.only_domain = source["only_domain"];
 	        this.only_alive = source["only_alive"];
 	        this.no_banner = source["no_banner"];
 	        this.skip_dns_failed = source["skip_dns_failed"];
+	        this.use_ip_ports = source["use_ip_ports"];
 	    }
 	}
 	export class SubdomainConfig {

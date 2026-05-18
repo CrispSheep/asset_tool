@@ -31,6 +31,8 @@ type HttpxConfig struct {
 	MatchCodes         string `json:"match_codes"`
 	FilterCodes        string `json:"filter_codes"`
 	OnlyUnprobed       bool   `json:"only_unprobed"`    // 仅探活未探测的资产
+	OnlyIP             bool   `json:"only_ip"`          // 只探活 IP 资产
+	OnlyDomain         bool   `json:"only_domain"`      // 只探活域名资产
 	SkipDnsFailed      bool   `json:"skip_dns_failed"`  // 跳过 DNS 解析失败的域名
 }
 
@@ -38,9 +40,15 @@ type HttpxConfig struct {
 func RunHttpx(appCtx context.Context, jobID string, projectID int64, cfg HttpxConfig) error {
 	var hosts []string
 	var err error
+	typeFilter := ""
+	if cfg.OnlyDomain {
+		typeFilter = "domain"
+	} else if cfg.OnlyIP {
+		typeFilter = "ip"
+	}
 	if cfg.OnlyUnprobed {
 		// 只取 status 为空的资产
-		assets, e := db.ListAssets(projectID, "", "", cfg.SkipDnsFailed)
+		assets, e := db.ListAssets(projectID, typeFilter, "", cfg.SkipDnsFailed)
 		if e != nil {
 			return fmt.Errorf("list assets: %w", e)
 		}
@@ -54,7 +62,7 @@ func RunHttpx(appCtx context.Context, jobID string, projectID int64, cfg HttpxCo
 			}
 		}
 	} else {
-		hosts, err = db.GetAllHosts(projectID, cfg.SkipDnsFailed)
+		hosts, err = db.GetAllHosts(projectID, typeFilter, cfg.SkipDnsFailed)
 		if err != nil {
 			return fmt.Errorf("get hosts: %w", err)
 		}

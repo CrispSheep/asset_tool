@@ -24,9 +24,11 @@ type RustscanConfig struct {
 	Tries        int    `json:"tries"`         // 重试次数
 	NoCDN        bool   `json:"no_cdn"`        // 跳过 CDN
 	OnlyIP       bool   `json:"only_ip"`       // 只扫 IP
+	OnlyDomain   bool   `json:"only_domain"`   // 只扫域名资产
 	OnlyAlive    bool   `json:"only_alive"`    // 只扫 alive 资产
 	NoBanner       bool   `json:"no_banner"`       // 不输出 ascii 横幅（accessible 模式）
 	SkipDnsFailed  bool   `json:"skip_dns_failed"` // 跳过 DNS 解析失败的域名
+	UseIPPorts     bool   `json:"use_ip_ports"`    // 使用 IP 扫描已发现的端口
 }
 
 var openPortRe = regexp.MustCompile(`Open\s+([\d.]+):(\d+)`)
@@ -35,7 +37,9 @@ var openPortRe = regexp.MustCompile(`Open\s+([\d.]+):(\d+)`)
 func RunRustscan(appCtx context.Context, jobID string, projectID int64, cfg RustscanConfig) error {
 	// 收集要扫描的目标
 	typeFilter := ""
-	if cfg.OnlyIP {
+	if cfg.OnlyDomain {
+		typeFilter = "domain"
+	} else if cfg.OnlyIP {
 		typeFilter = "ip"
 	}
 	statusFilter := ""
@@ -61,6 +65,20 @@ func RunRustscan(appCtx context.Context, jobID string, projectID int64, cfg Rust
 	if len(hosts) == 0 {
 		wruntime.EventsEmit(appCtx, "rustscan:done", map[string]any{"done": 0, "total": 0, "new": 0})
 		return nil
+	}
+
+	if cfg.UseIPPorts {
+		ipPorts, err := db.GetIPPorts(projectID)
+		if err != nil {
+			return fmt.Errorf("get ip ports: %w", err)
+		}
+		if ipPorts == "" {
+			wruntime.EventsEmit(appCtx, "rustscan:log", "[!] 未找到 IP 已发现的端口，跳过扫描")
+			wruntime.EventsEmit(appCtx, "rustscan:done", map[string]any{"done": 0, "total": 0, "new": 0})
+			return nil
+		}
+		cfg.Ports = ipPorts
+		wruntime.EventsEmit(appCtx, "rustscan:log", fmt.Sprintf("[i] 使用 IP 已发现端口: %s", ipPorts))
 	}
 
 	ctx, cancel := context.WithCancel(appCtx)

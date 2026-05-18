@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, onBeforeUnmount } from 'vue'
+import { ref, watch, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
+import { InfoFilled } from '@element-plus/icons-vue'
 import {
   RunHttpx, PauseJob, ResumeJob, CancelJob,
   GetSetting, SetSetting,
@@ -26,7 +27,12 @@ const followRedir = ref(true)
 const matchCodes = ref('')
 const filterCodes = ref('')
 const onlyUnprobed = ref(true)
+const onlyIP = ref(false)
+const onlyDomain = ref(false)
 const skipDnsFailed = ref(true)
+
+watch(onlyIP, v => { if (v) onlyDomain.value = false })
+watch(onlyDomain, v => { if (v) onlyIP.value = false })
 
 const running = ref(false)
 const paused = ref(false)
@@ -132,6 +138,8 @@ async function start() {
       match_codes: matchCodes.value,
       filter_codes: filterCodes.value,
       only_unprobed: onlyUnprobed.value,
+      only_ip: onlyIP.value,
+      only_domain: onlyDomain.value,
       skip_dns_failed: skipDnsFailed.value,
     })
   } catch (e: any) {
@@ -222,10 +230,20 @@ function pickPath() {
       <el-checkbox v-model="onlyUnprobed">
         仅探活未探测的资产（增量模式，跳过已有 alive/dead 状态的）
       </el-checkbox>
-      <br />
-      <el-checkbox v-model="skipDnsFailed">
-        跳过 DNS 解析失败的域名（标记为 "DNS无效" 的资产）
-      </el-checkbox>
+      <div class="checkbox-row" style="margin-top: 8px">
+        <el-checkbox v-model="onlyIP">
+          仅探活 IP 资产
+          <el-tooltip content="只对 IP 类型资产做探活"><el-icon><InfoFilled /></el-icon></el-tooltip>
+        </el-checkbox>
+        <el-checkbox v-model="onlyDomain">
+          仅探活域名资产
+          <el-tooltip content="只对域名类型资产做探活"><el-icon><InfoFilled /></el-icon></el-tooltip>
+        </el-checkbox>
+        <el-checkbox v-model="skipDnsFailed">
+          跳过 DNS 无效域名
+          <el-tooltip content="跳过标记为 &quot;DNS无效&quot; 的域名"><el-icon><InfoFilled /></el-icon></el-tooltip>
+        </el-checkbox>
+      </div>
     </div>
 
     <!-- 进度 + 用时 -->
@@ -304,7 +322,7 @@ function pickPath() {
 }
 .httpx-dialog .el-dialog__body {
   flex: 1;
-  overflow: hidden;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   padding-top: 10px;

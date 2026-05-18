@@ -27,14 +27,18 @@ type NaabuConfig struct {
 	ExcludeCDN  bool   `json:"exclude_cdn"`  // 跳过 CDN IP
 	Verify      bool   `json:"verify"`       // 二次确认（更准但慢）
 	OnlyIP      bool   `json:"only_ip"`      // 只扫 IP 资产
+	OnlyDomain  bool   `json:"only_domain"`  // 只扫域名资产
 	OnlyAlive   bool   `json:"only_alive"`   // 只扫 alive
 	SkipDnsFailed bool `json:"skip_dns_failed"` // 跳过 DNS 解析失败的域名
+	UseIPPorts  bool   `json:"use_ip_ports"`  // 使用 IP 扫描已发现的端口
 }
 
 // RunNaabu 执行 naabu 端口扫描
 func RunNaabu(appCtx context.Context, jobID string, projectID int64, cfg NaabuConfig) error {
 	typeFilter := ""
-	if cfg.OnlyIP {
+	if cfg.OnlyDomain {
+		typeFilter = "domain"
+	} else if cfg.OnlyIP {
 		typeFilter = "ip"
 	}
 	statusFilter := ""
@@ -78,7 +82,19 @@ func RunNaabu(appCtx context.Context, jobID string, projectID int64, cfg NaabuCo
 		"-timeout", strconv.Itoa(cfg.Timeout),
 		"-retries", strconv.Itoa(cfg.Retries),
 	}
-	if p := strings.TrimSpace(cfg.Ports); p != "" {
+	if cfg.UseIPPorts {
+		ipPorts, err := db.GetIPPorts(projectID)
+		if err != nil {
+			return fmt.Errorf("get ip ports: %w", err)
+		}
+		if ipPorts == "" {
+			wruntime.EventsEmit(appCtx, "naabu:log", "[!] 未找到 IP 已发现的端口，跳过扫描")
+			wruntime.EventsEmit(appCtx, "naabu:done", map[string]any{"hosts": 0, "ports": 0, "new": 0})
+			return nil
+		}
+		args = append(args, "-p", ipPorts)
+		wruntime.EventsEmit(appCtx, "naabu:log", fmt.Sprintf("[i] 使用 IP 已发现端口: %s", ipPorts))
+	} else if p := strings.TrimSpace(cfg.Ports); p != "" {
 		args = append(args, "-p", p)
 	}
 	if st := strings.TrimSpace(cfg.ScanType); st != "" {

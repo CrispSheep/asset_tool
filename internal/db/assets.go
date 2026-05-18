@@ -263,9 +263,13 @@ func DeleteAssets(ids []int64) error {
 }
 
 // GetAllHosts 取项目所有 host[:port] 用于探活/端口扫描输入
-func GetAllHosts(projectID int64, skipDnsFailed ...bool) ([]string, error) {
+func GetAllHosts(projectID int64, typeFilter string, skipDnsFailed ...bool) ([]string, error) {
 	q := "SELECT host, IFNULL(port,'') FROM assets WHERE project_id=?"
 	args := []any{projectID}
+	if typeFilter != "" {
+		q += " AND type=?"
+		args = append(args, typeFilter)
+	}
 	if len(skipDnsFailed) > 0 && skipDnsFailed[0] {
 		q += ` AND NOT (tags LIKE '%DNS无效%')`
 	}
@@ -291,6 +295,28 @@ func GetAllHosts(projectID int64, skipDnsFailed ...bool) ([]string, error) {
 		return nil, err
 	}
 	return hosts, nil
+}
+
+// GetIPPorts 取项目中 IP 资产已发现的所有去重端口，返回逗号分隔字符串如 "80,443,8080"
+func GetIPPorts(projectID int64) (string, error) {
+	q := `SELECT DISTINCT port FROM assets WHERE project_id=? AND type='ip' AND port<>'' ORDER BY CAST(port AS INTEGER)`
+	rows, err := conn.Query(q, projectID)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	var ports []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return "", err
+		}
+		ports = append(ports, p)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return strings.Join(ports, ","), nil
 }
 
 // UpdateProbeResult 写入 httpx 探活结果
@@ -450,7 +476,7 @@ type AssetPageResult struct {
 }
 
 // ListAssetsPage 分页列出资产
-func ListAssetsPage(projectID int64, typeFilter, statusFilter, keyword string, page, pageSize int) (AssetPageResult, error) {
+func ListAssetsPage(projectID int64, typeFilter, statusFilter, keyword, networkFilter, sortBy, sortOrder string, page, pageSize int) (AssetPageResult, error) {
 	var result AssetPageResult
 	if page < 1 {
 		page = 1
@@ -475,6 +501,11 @@ func ListAssetsPage(projectID int64, typeFilter, statusFilter, keyword string, p
 			args = append(args, statusFilter)
 		}
 	}
+	if networkFilter == "intranet" {
+		where += ` AND (host LIKE '10.%' OR host LIKE '192.168.%' OR host LIKE '127.%' OR host GLOB '172.1[6-9].*' OR host GLOB '172.2[0-9].*' OR host GLOB '172.3[0-1].*')`
+	} else if networkFilter == "extranet" {
+		where += ` AND NOT (host LIKE '10.%' OR host LIKE '192.168.%' OR host LIKE '127.%' OR host GLOB '172.1[6-9].*' OR host GLOB '172.2[0-9].*' OR host GLOB '172.3[0-1].*')`
+	}
 	if kw := strings.TrimSpace(keyword); kw != "" {
 		where += " AND (host LIKE ? OR IFNULL(title,'') LIKE ? OR IFNULL(server,'') LIKE ? OR IFNULL(port,'') LIKE ?)"
 		like := "%" + kw + "%"
@@ -487,11 +518,26 @@ func ListAssetsPage(projectID int64, typeFilter, statusFilter, keyword string, p
 		return result, fmt.Errorf("count: %w", err)
 	}
 
+	// 排序
+	allowedCols := map[string]string{
+		"host": "host", "port": "IFNULL(port,'')", "status": "IFNULL(status,'')",
+		"status_code": "status_code", "title": "IFNULL(title,'')", "server": "IFNULL(server,'')",
+		"probed_at": "IFNULL(probed_at,'')", "created_at": "created_at",
+	}
+	orderClause := "ORDER BY created_at DESC, id DESC"
+	if col, ok := allowedCols[sortBy]; ok {
+		dir := "ASC"
+		if sortOrder == "desc" {
+			dir = "DESC"
+		}
+		orderClause = fmt.Sprintf("ORDER BY %s %s, id DESC", col, dir)
+	}
+
 	// 查分页数据
 	q := `SELECT id, project_id, type, host, IFNULL(port,''), sources, IFNULL(tags,'[]'),
 	             IFNULL(status,''), status_code, IFNULL(title,''), IFNULL(server,''),
 	             IFNULL(tech,''), IFNULL(probed_at,''), created_at
-	      FROM assets ` + where + " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"
+	      FROM assets ` + where + " " + orderClause + " LIMIT ? OFFSET ?"
 	args = append(args, pageSize, offset)
 
 	rows, err := conn.Query(q, args...)

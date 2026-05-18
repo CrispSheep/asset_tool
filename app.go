@@ -132,8 +132,8 @@ func (a *App) ListAssets(projectID int64, typeFilter, statusFilter string) ([]mo
 }
 
 // ListAssetsPage 分页列出资产
-func (a *App) ListAssetsPage(projectID int64, typeFilter, statusFilter, keyword string, page, pageSize int) (db.AssetPageResult, error) {
-	return db.ListAssetsPage(projectID, typeFilter, statusFilter, keyword, page, pageSize)
+func (a *App) ListAssetsPage(projectID int64, typeFilter, statusFilter, keyword, networkFilter, sortBy, sortOrder string, page, pageSize int) (db.AssetPageResult, error) {
+	return db.ListAssetsPage(projectID, typeFilter, statusFilter, keyword, networkFilter, sortBy, sortOrder, page, pageSize)
 }
 
 // CountAssetStats 统计项目资产各维度数量

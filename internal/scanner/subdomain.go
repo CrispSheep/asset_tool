@@ -126,7 +126,23 @@ func runKsubdomain(ctx context.Context, cfg SubdomainConfig, domain string, logF
 	streamLog(stdout, logFn)
 	cmd.Wait()
 
-	return readLines(outPath), nil
+	lines := readLines(outPath)
+	return parseKsubdomainLines(lines), nil
+}
+
+// parseKsubdomainLines 解析 ksubdomain 输出行
+// 格式可能是 "sub.example.com" 或 "sub.example.com => 1.2.3.4"
+func parseKsubdomainLines(lines []string) []string {
+	var out []string
+	for _, l := range lines {
+		if idx := strings.Index(l, "=>"); idx != -1 {
+			l = strings.TrimSpace(l[:idx])
+		}
+		if l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 // ── oneforall ─────────────────────────────────────────────────────

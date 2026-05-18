@@ -6,7 +6,7 @@ import {
   ArrowLeft, Upload, Search, Delete, DocumentCopy, Download, Aim, Connection, Share, Document,
 } from '@element-plus/icons-vue'
 import {
-  ListAssetsPage, CountAssetStats, DeleteAssets, GetSetting, SetSetting,
+  ListAssetsPage, ListAssets, CountAssetStats, DeleteAssets, GetSetting, SetSetting,
   BatchAddTag, BatchRemoveTag,
 } from '../../wailsjs/go/main/App'
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
@@ -31,8 +31,11 @@ const loading = ref(false)
 
 const search = ref('')
 const filterMode = ref<'all' | 'alive' | 'non-http' | 'unprobed' | 'dead'>('all')
+const networkFilter = ref<'all' | 'intranet' | 'extranet'>('all')
 const page = ref(1)
 const pageSize = ref(50)
+const sortBy = ref('')
+const sortOrder = ref<'asc' | 'desc'>('asc')
 
 // 统计仪表盘数据（独立请求，不依赖分页）
 const stats = ref<Record<string, number>>({ total: 0, ip: 0, domain: 0, alive: 0, dead: 0, unprobed: 0, ports: 0 })
@@ -52,7 +55,6 @@ function getStatusFilter(): string {
     case 'alive': return 'alive'
     case 'dead': return 'dead'
     case 'unprobed': return 'unprobed'
-    // non-http 在前端做二次过滤（需要 dead + 非常用端口）
     case 'non-http': return 'dead'
     default: return ''
   }
@@ -81,11 +83,13 @@ async function fetchPage() {
       tab.value,
       getStatusFilter(),
       search.value.trim(),
+      networkFilter.value === 'all' ? '' : networkFilter.value,
+      sortBy.value,
+      sortOrder.value,
       page.value,
       pageSize.value,
     )
     let items = res.items || []
-    // non-http 二次过滤：排除常见 HTTP 端口
     if (filterMode.value === 'non-http') {
       const httpPorts = new Set(['', '80', '443', '8080', '8443', '8000', '8888'])
       items = items.filter(a => !httpPorts.has(a.port || ''))
@@ -109,10 +113,11 @@ function onPageSizeChange() {
 }
 
 // 切换 tab / 过滤模式时重置到第一页
-watch([tab, filterMode], () => {
+watch([tab, filterMode, networkFilter], () => {
   page.value = 1
   selected.value = []
   selectedIds.value = new Set()
+  if (tab.value === 'domain') networkFilter.value = 'all'
   refresh()
 })
 
@@ -231,24 +236,38 @@ async function deleteSelected() {
   } catch { /* cancel */ }
 }
 
-function exportTXT() {
-  if (assets.value.length === 0) {
+async function fetchAllAssets(): Promise<model.Asset[]> {
+  const typeFilter = tab.value
+  const statusFilter = getStatusFilter()
+  const all = await ListAssets(projectId, typeFilter, statusFilter)
+  let items = all || []
+  if (filterMode.value === 'non-http') {
+    const httpPorts = new Set(['', '80', '443', '8080', '8443', '8000', '8888'])
+    items = items.filter(a => !httpPorts.has(a.port || ''))
+  }
+  return items
+}
+
+async function exportTXT() {
+  const all = await fetchAllAssets()
+  if (all.length === 0) {
     ElMessage.warning('没有数据可导出')
     return
   }
-  const lines = assets.value.map((a) =>
+  const lines = all.map((a) =>
     a.port ? `${a.host}:${a.port}` : a.host
   )
   download(`${projectName}_${tab.value}.txt`, lines.join('\n'))
 }
 
-function exportCSV() {
-  if (assets.value.length === 0) {
+async function exportCSV() {
+  const all = await fetchAllAssets()
+  if (all.length === 0) {
     ElMessage.warning('没有数据可导出')
     return
   }
   const header = ['host', 'port', 'type', 'sources', 'status', 'status_code', 'title', 'server']
-  const rows = assets.value.map((a) => [
+  const rows = all.map((a) => [
     a.host, a.port, a.type, (a.sources || []).join(', '),
     a.status || '', a.status_code ?? '', (a.title || '').replace(/,/g, ' '), a.server || '',
   ])
@@ -332,15 +351,47 @@ function onColumnResize(col: any, width: number) {
   }
 }
 
+function toggleSort(key: string) {
+  if (sortBy.value === key) {
+    if (sortOrder.value === 'asc') {
+      sortOrder.value = 'desc'
+    } else {
+      sortBy.value = ''
+      sortOrder.value = 'asc'
+    }
+  } else {
+    sortBy.value = key
+    sortOrder.value = 'asc'
+  }
+  page.value = 1
+  fetchPage()
+}
+
+const SORTABLE_COLS = new Set(['host', 'port', 'status', 'status_code', 'title', 'server', 'probed_at'])
+
 // 自定义可拖拽表头：在 title 右侧叠加一个 resize handle
 function makeResizableHeader(key: string, title: string) {
-  return () => h('div', { class: 'resizable-th' }, [
-    h('span', { class: 'th-title' }, title),
-    h('div', {
-      class: 'th-resize-handle',
-      onMousedown: (e: MouseEvent) => startResize(e, key),
-    }),
-  ])
+  return () => {
+    const sortable = SORTABLE_COLS.has(key)
+    const isActive = sortBy.value === key
+    const children = [
+      h('span', {
+        class: ['th-title', sortable ? 'th-sortable' : ''],
+        onClick: sortable ? () => toggleSort(key) : undefined,
+      }, [
+        title,
+        sortable ? h('span', { class: 'th-sort-icons' }, [
+          h('span', { class: ['th-sort-arrow', 'up', isActive && sortOrder.value === 'asc' ? 'active' : ''] }, '▲'),
+          h('span', { class: ['th-sort-arrow', 'down', isActive && sortOrder.value === 'desc' ? 'active' : ''] }, '▼'),
+        ]) : null,
+      ]),
+      h('div', {
+        class: 'th-resize-handle',
+        onMousedown: (e: MouseEvent) => startResize(e, key),
+      }),
+    ]
+    return h('div', { class: 'resizable-th' }, children)
+  }
 }
 
 function startResize(e: MouseEvent, key: string) {
@@ -415,7 +466,7 @@ const columns = computed<any[]>(() => [
     ),
   },
   {
-    key: 'status', title: '状态', width: colWidths.value.status, sortable: true,
+    key: 'status', title: '状态', width: colWidths.value.status,
     headerCellRenderer: makeResizableHeader('status', '状态'),
     cellRenderer: ({ rowData }: { rowData: model.Asset }) => h(ElTag, {
       type: statusType(rowData.status),
@@ -423,7 +474,7 @@ const columns = computed<any[]>(() => [
     }, () => statusText(rowData.status)),
   },
   {
-    key: 'status_code', dataKey: 'status_code', title: '状态码', width: colWidths.value.status_code, sortable: true,
+    key: 'status_code', dataKey: 'status_code', title: '状态码', width: colWidths.value.status_code,
     headerCellRenderer: makeResizableHeader('status_code', '状态码'),
   },
   {
@@ -466,12 +517,17 @@ onMounted(async () => {
       <el-button :icon="Connection" type="primary" plain @click="naabuVisible = true">端口扫描 (naabu)</el-button>
       <el-button :icon="Document" @click="noteVisible = true">📝 笔记</el-button>
       <div class="spacer" />
-      <el-select v-model="filterMode" style="width: 200px">
-        <el-option label="全部" value="all" />
+      <el-select v-model="filterMode" style="width: 180px">
+        <el-option label="全部状态" value="all" />
         <el-option label="仅 HTTP 存活" value="alive" />
         <el-option label="仅非 HTTP 服务" value="non-http" />
         <el-option label="仅未探活" value="unprobed" />
         <el-option label="仅 dead" value="dead" />
+      </el-select>
+      <el-select v-if="tab === 'ip'" v-model="networkFilter" style="width: 140px">
+        <el-option label="全部网段" value="all" />
+        <el-option label="内网 IP" value="intranet" />
+        <el-option label="外网 IP" value="extranet" />
       </el-select>
       <el-button :icon="DocumentCopy" @click="copyVisible">复制可见</el-button>
       <el-button :icon="Download" @click="exportTXT">导出 TXT</el-button>
@@ -699,6 +755,13 @@ onMounted(async () => {
 }
 
 /* ── 虚拟表格深色主题 ───────────────────── */
+:deep(.el-table-v2),
+:deep(.el-table-v2__root),
+:deep(.el-table-v2__main),
+:deep(.el-table-v2__body),
+:deep(.el-table-v2 [role="grid"]) {
+  background-color: #25282f !important;
+}
 :deep(.el-table-v2__header),
 :deep(.el-table-v2__header-row),
 :deep(.el-table-v2__header-cell) {
@@ -719,6 +782,11 @@ onMounted(async () => {
 :deep(.el-table-v2__empty) {
   background-color: #25282f !important;
   color: #6c7080;
+}
+:deep(.el-vl__wrapper),
+:deep(.el-virtual-scrollbar),
+:deep(.el-table-v2__body .el-vl__wrapper > div) {
+  background-color: #25282f !important;
 }
 
 /* 列分隔线（默认细线，hover 加粗变蓝） */
@@ -753,6 +821,32 @@ onMounted(async () => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+:deep(.th-sortable) {
+  cursor: pointer;
+}
+:deep(.th-sortable:hover) {
+  color: #e8e8e8;
+}
+:deep(.th-sort-icons) {
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 1;
+  gap: 0;
+  font-size: 8px;
+  margin-left: 2px;
+  flex-shrink: 0;
+}
+:deep(.th-sort-arrow) {
+  color: #555;
+  line-height: 1;
+  transition: color 0.15s;
+}
+:deep(.th-sort-arrow.active) {
+  color: #1890ff;
 }
 :deep(.th-resize-handle) {
   position: absolute;

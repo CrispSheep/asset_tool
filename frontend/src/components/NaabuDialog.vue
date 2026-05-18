@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onBeforeUnmount } from 'vue'
+import { ref, watch, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { InfoFilled } from '@element-plus/icons-vue'
 import {
@@ -22,8 +22,13 @@ const scanType = ref<'c' | 's'>('c')
 const excludeCDN = ref(false)
 const verify = ref(false)
 const onlyIP = ref(true)
+const onlyDomain = ref(false)
 const onlyAlive = ref(false)
 const skipDnsFailed = ref(true)
+const useIPPorts = ref(false)
+
+watch(onlyIP, v => { if (v) onlyDomain.value = false })
+watch(onlyDomain, v => { if (v) onlyIP.value = false })
 
 const running = ref(false)
 const paused = ref(false)
@@ -130,8 +135,10 @@ async function start() {
       exclude_cdn: excludeCDN.value,
       verify: verify.value,
       only_ip: onlyIP.value,
+      only_domain: onlyDomain.value,
       only_alive: onlyAlive.value,
       skip_dns_failed: skipDnsFailed.value,
+      use_ip_ports: useIPPorts.value,
     })
   } catch (e: any) {
     running.value = false
@@ -247,6 +254,10 @@ function hide() {
         仅扫 IP 资产
         <el-tooltip content="域名常被 CDN 干扰，只扫 IP 更准确"><el-icon><InfoFilled /></el-icon></el-tooltip>
       </el-checkbox>
+      <el-checkbox v-model="onlyDomain">
+        仅扫域名资产
+        <el-tooltip content="先扫 IP 端口后再单独扫域名端口时使用"><el-icon><InfoFilled /></el-icon></el-tooltip>
+      </el-checkbox>
       <el-checkbox v-model="onlyAlive">
         仅扫已存活资产 (httpx alive)
         <el-tooltip content="只对 httpx 探活后 alive 的资产做端口扫描"><el-icon><InfoFilled /></el-icon></el-tooltip>
@@ -262,6 +273,10 @@ function hide() {
       <el-checkbox v-model="skipDnsFailed">
         跳过 DNS 无效域名
         <el-tooltip content="跳过标记为 &quot;DNS无效&quot; 的域名，避免浪费时间"><el-icon><InfoFilled /></el-icon></el-tooltip>
+      </el-checkbox>
+      <el-checkbox v-model="useIPPorts">
+        使用 IP 已发现端口
+        <el-tooltip content="用 IP 资产已扫到的端口列表作为扫描范围，适合先扫 IP 再扫域名的场景"><el-icon><InfoFilled /></el-icon></el-tooltip>
       </el-checkbox>
     </div>
 
