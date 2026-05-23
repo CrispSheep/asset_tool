@@ -124,7 +124,9 @@ func runKsubdomain(ctx context.Context, cfg SubdomainConfig, domain string, logF
 		return nil, fmt.Errorf("启动失败: %w", err)
 	}
 	streamLog(stdout, logFn)
-	cmd.Wait()
+	if err := cmd.Wait(); err != nil {
+		logFn(fmt.Sprintf("[!] ksubdomain exited: %v", err))
+	}
 
 	lines := readLines(outPath)
 	return parseKsubdomainLines(lines), nil
@@ -166,7 +168,9 @@ func runOneforall(ctx context.Context, cfg SubdomainConfig, domain string, logFn
 		return nil, fmt.Errorf("启动失败: %w", err)
 	}
 	streamLog(stdout, logFn)
-	cmd.Wait()
+	if err := cmd.Wait(); err != nil {
+		logFn(fmt.Sprintf("[!] oneforall exited: %v", err))
+	}
 
 	// 读取 results/<domain>.csv
 	resultPath := filepath.Join(toolDir, "results", domain+".csv")
@@ -257,9 +261,15 @@ func runSubfinder(ctx context.Context, cfg SubdomainConfig, domain string, logFn
 		if _, ok := seen[line]; !ok {
 			seen[line] = struct{}{}
 			subs = append(subs, line)
+			if len(subs) >= maxSubdomainResults {
+				logFn(fmt.Sprintf("[!] 已达上限 %d 条，停止收集", maxSubdomainResults))
+				break
+			}
 		}
 	}
-	cmd.Wait()
+	if err := cmd.Wait(); err != nil {
+		logFn(fmt.Sprintf("[!] subfinder exited: %v", err))
+	}
 	return subs, nil
 }
 
@@ -291,9 +301,14 @@ func readLines(path string) []string {
 	return out
 }
 
+const maxSubdomainResults = 10000
+
 func saveSubdomains(projectID int64, subs []string, source string) int {
 	if len(subs) == 0 {
 		return 0
+	}
+	if len(subs) > maxSubdomainResults {
+		subs = subs[:maxSubdomainResults]
 	}
 	entries := make([]model.AssetEntry, 0, len(subs))
 	for _, s := range subs {

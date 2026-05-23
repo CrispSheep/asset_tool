@@ -132,9 +132,13 @@ function stop() {
 
 function close() {
   if (running.value) {
-    ElMessage.warning('解析进行中，先停止或等待结束')
+    ElMessage.warning('解析进行中，可点「收起」后台运行，或先停止')
     return
   }
+  visible.value = false
+}
+
+function hide() {
   visible.value = false
 }
 </script>
@@ -143,7 +147,7 @@ function close() {
   <el-dialog
     v-model="visible"
     title="DNS 批量解析"
-    width="56%"
+    width="65%"
     top="5vh"
     draggable
     :close-on-click-modal="false"
@@ -187,9 +191,9 @@ function close() {
         <span class="time">⏱ {{ elapsed }}</span>
         <span class="muted">
           {{ processed }} / {{ total }} |
-          <span style="color: #52c41a">成功 {{ resolvedCount }}</span> |
-          <span style="color: #ff4d4f">失败 {{ failedCount }}</span> |
-          <span style="color: #1890ff">新增 IP {{ newIPCount }}</span>
+          <span style="color: var(--success)">成功 {{ resolvedCount }}</span> |
+          <span style="color: var(--danger)">失败 {{ failedCount }}</span> |
+          <span style="color: var(--accent)">新增 IP {{ newIPCount }}</span>
         </span>
       </div>
     </div>
@@ -202,6 +206,7 @@ function close() {
 
     <template #footer>
       <el-button @click="close" :disabled="running">关闭</el-button>
+      <el-button v-if="running" @click="hide">收起后台</el-button>
       <el-button v-if="running" @click="togglePause">
         {{ paused ? '▶ 继续' : '⏸ 暂停' }}
       </el-button>
@@ -214,13 +219,13 @@ function close() {
 <style scoped>
 .form-hint {
   margin-left: 12px;
-  color: #8c8c8c;
+  color: var(--text-muted);
   font-size: 12px;
 }
 .progress-area {
   margin-top: 12px;
   padding: 8px 12px;
-  background: #2a2d36;
+  background: var(--bg-surface);
   border-radius: 6px;
 }
 .meta {
@@ -229,32 +234,32 @@ function close() {
   margin-top: 4px;
   font-size: 12px;
 }
-.time { color: #1890ff; font-weight: 600; }
-.muted { color: #aaaaaa; }
+.time { color: var(--accent); font-weight: 600; }
+.muted { color: var(--text-muted); }
 .log {
   margin-top: 10px;
   flex: 1;
   min-height: 120px;
   overflow-y: auto;
-  background: #1a1c22;
-  color: #d4d4d4;
+  background: var(--bg-log);
+  color: var(--text-regular);
   font-family: Consolas, monospace;
   font-size: 12px;
   padding: 8px 10px;
   border-radius: 6px;
-  border: 1px solid #3a3e4a;
+  border: 1px solid var(--border);
 }
 .log-line {
   white-space: pre-wrap;
   line-height: 1.4;
 }
-.log-success { color: #52c41a; }
-.log-fail { color: #ff4d4f; }
+.log-success { color: var(--success); }
+.log-fail { color: var(--danger); }
 </style>
 
 <style>
 .dns-dialog {
-  height: 80vh;
+  height: 90vh;
   display: flex;
   flex-direction: column;
   margin: 0 !important;

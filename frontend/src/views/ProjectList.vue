@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search, Folder, FolderOpened, Edit, Delete } from '@element-plus/icons-vue'
+import { Plus, Search, Folder, FolderOpened, Edit, Delete, Monitor, Moon, Sunny } from '@element-plus/icons-vue'
 import {
   ListProjects,
   CreateProject,
@@ -10,11 +10,20 @@ import {
   DeleteProject,
 } from '../../wailsjs/go/main/App'
 import type { model } from '../../wailsjs/go/models'
+import { useTheme } from '../composables/useTheme'
+
+const { theme, cycleTheme } = useTheme()
 
 const router = useRouter()
 const search = ref('')
 const projects = ref<model.Project[]>([])
 const loading = ref(false)
+
+let searchTimer: number | null = null
+function onSearchInput() {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = window.setTimeout(refresh, 300)
+}
 
 async function refresh() {
   loading.value = true
@@ -79,6 +88,10 @@ onMounted(refresh)
   <div class="page">
     <div class="header">
       <h1>资产测绘工具 <span class="by">by CrispSheep</span></h1>
+      <div class="spacer" />
+      <el-tooltip :content="theme === 'system' ? '跟随系统' : theme === 'dark' ? '暗色模式' : '亮色模式'" placement="bottom">
+        <el-button :icon="theme === 'system' ? Monitor : theme === 'dark' ? Moon : Sunny" circle @click="cycleTheme" />
+      </el-tooltip>
     </div>
 
     <div class="toolbar">
@@ -87,7 +100,7 @@ onMounted(refresh)
         placeholder="搜索项目名…"
         :prefix-icon="Search"
         clearable
-        @input="refresh"
+        @input="onSearchInput"
         style="flex: 1"
       />
       <el-button type="primary" :icon="Plus" @click="createProject">
@@ -137,15 +150,19 @@ onMounted(refresh)
   gap: 16px;
   box-sizing: border-box;
 }
+.header {
+  display: flex;
+  align-items: center;
+}
 .header h1 {
   margin: 0;
   font-size: 22px;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--text-primary);
 }
 .header .by {
   font-size: 13px;
-  color: #1890ff;
+  color: var(--accent);
   font-weight: 500;
   margin-left: 8px;
 }
@@ -153,6 +170,7 @@ onMounted(refresh)
   display: flex;
   gap: 12px;
 }
+.spacer { flex: 1; }
 .list {
   flex: 1;
   overflow-y: auto;
@@ -165,19 +183,19 @@ onMounted(refresh)
   align-items: center;
   gap: 14px;
   padding: 14px 16px;
-  background: #25282f;
-  border: 1px solid #3a3e4a;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 8px;
   cursor: pointer;
   transition: border-color 0.15s, transform 0.15s;
 }
 .card:hover {
-  border-color: #1890ff;
+  border-color: var(--accent);
   transform: translateX(2px);
 }
 .folder-icon {
   font-size: 26px;
-  color: #1890ff;
+  color: var(--accent);
 }
 .info {
   flex: 1;
@@ -189,7 +207,7 @@ onMounted(refresh)
 .name {
   font-size: 15px;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -207,7 +225,7 @@ onMounted(refresh)
 }
 .time {
   font-size: 12px;
-  color: #6c7080;
+  color: var(--text-dimmed);
 }
 .actions {
   display: flex;

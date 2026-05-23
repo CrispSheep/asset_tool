@@ -31,32 +31,44 @@ type NaabuConfig struct {
 	OnlyAlive   bool   `json:"only_alive"`   // 只扫 alive
 	SkipDnsFailed bool `json:"skip_dns_failed"` // 跳过 DNS 解析失败的域名
 	UseIPPorts  bool   `json:"use_ip_ports"`  // 使用 IP 扫描已发现的端口
+	DomainNetwork string `json:"domain_network"` // 域名网络过滤: "" | "extranet" | "intranet"
 }
 
 // RunNaabu 执行 naabu 端口扫描
 func RunNaabu(appCtx context.Context, jobID string, projectID int64, cfg NaabuConfig) error {
-	typeFilter := ""
-	if cfg.OnlyDomain {
-		typeFilter = "domain"
-	} else if cfg.OnlyIP {
-		typeFilter = "ip"
-	}
-	statusFilter := ""
-	if cfg.OnlyAlive {
-		statusFilter = "alive"
-	}
-	assets, err := db.ListAssets(projectID, typeFilter, statusFilter, cfg.SkipDnsFailed)
-	if err != nil {
-		return fmt.Errorf("list assets: %w", err)
-	}
+	var hosts []string
 
-	hostSet := map[string]struct{}{}
-	for _, a := range assets {
-		hostSet[a.Host] = struct{}{}
-	}
-	hosts := make([]string, 0, len(hostSet))
-	for h := range hostSet {
-		hosts = append(hosts, h)
+	if cfg.OnlyDomain && cfg.DomainNetwork != "" {
+		// 按域名解析 IP 的网络类型过滤
+		var err error
+		hosts, err = db.GetDomainHostsByNetwork(projectID, cfg.DomainNetwork)
+		if err != nil {
+			return fmt.Errorf("get domain hosts by network: %w", err)
+		}
+	} else {
+		typeFilter := ""
+		if cfg.OnlyDomain {
+			typeFilter = "domain"
+		} else if cfg.OnlyIP {
+			typeFilter = "ip"
+		}
+		statusFilter := ""
+		if cfg.OnlyAlive {
+			statusFilter = "alive"
+		}
+		assets, err := db.ListAssets(projectID, typeFilter, statusFilter, cfg.SkipDnsFailed)
+		if err != nil {
+			return fmt.Errorf("list assets: %w", err)
+		}
+
+		hostSet := map[string]struct{}{}
+		for _, a := range assets {
+			hostSet[a.Host] = struct{}{}
+		}
+		hosts = make([]string, 0, len(hostSet))
+		for h := range hostSet {
+			hosts = append(hosts, h)
+		}
 	}
 	sort.Strings(hosts)
 
@@ -177,7 +189,9 @@ func RunNaabu(appCtx context.Context, jobID string, projectID int64, cfg NaabuCo
 			"count": totalPorts,
 		})
 	}
-	cmd.Wait()
+	if err := cmd.Wait(); err != nil && ctx.Err() == nil {
+		wruntime.EventsEmit(appCtx, "naabu:log", fmt.Sprintf("[!] naabu exited: %v", err))
+	}
 
 	cancelled := ctx.Err() != nil
 	totalNew := 0

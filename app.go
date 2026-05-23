@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
-	"time"
 
 	"asset_tool_go/internal/db"
 	"asset_tool_go/internal/model"
@@ -132,8 +132,8 @@ func (a *App) ListAssets(projectID int64, typeFilter, statusFilter string) ([]mo
 }
 
 // ListAssetsPage 分页列出资产
-func (a *App) ListAssetsPage(projectID int64, typeFilter, statusFilter, keyword, networkFilter, sortBy, sortOrder string, page, pageSize int) (db.AssetPageResult, error) {
-	return db.ListAssetsPage(projectID, typeFilter, statusFilter, keyword, networkFilter, sortBy, sortOrder, page, pageSize)
+func (a *App) ListAssetsPage(projectID int64, typeFilter, statusFilter, keyword, networkFilter, sortsJSON string, page, pageSize int) (db.AssetPageResult, error) {
+	return db.ListAssetsPage(projectID, typeFilter, statusFilter, keyword, networkFilter, sortsJSON, page, pageSize)
 }
 
 // CountAssetStats 统计项目资产各维度数量
@@ -184,6 +184,11 @@ func (a *App) SetSetting(key, value string) error {
 func (a *App) RunHttpx(projectID int64, cfg scanner.HttpxConfig) (string, error) {
 	jobID := fmt.Sprintf("httpx-%d-%d", projectID, randInt())
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				wruntime.EventsEmit(a.ctx, "httpx:error", fmt.Sprintf("内部错误: %v", r))
+			}
+		}()
 		if err := scanner.RunHttpx(a.ctx, jobID, projectID, cfg); err != nil {
 			wruntime.EventsEmit(a.ctx, "httpx:error", err.Error())
 		}
@@ -218,6 +223,11 @@ func (a *App) CancelJob(jobID string) {
 func (a *App) RunRustscan(projectID int64, cfg scanner.RustscanConfig) (string, error) {
 	jobID := fmt.Sprintf("rustscan-%d-%d", projectID, randInt())
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				wruntime.EventsEmit(a.ctx, "rustscan:error", fmt.Sprintf("内部错误: %v", r))
+			}
+		}()
 		if err := scanner.RunRustscan(a.ctx, jobID, projectID, cfg); err != nil {
 			wruntime.EventsEmit(a.ctx, "rustscan:error", err.Error())
 		}
@@ -229,6 +239,11 @@ func (a *App) RunRustscan(projectID int64, cfg scanner.RustscanConfig) (string, 
 func (a *App) RunSubdomain(projectID int64, cfg scanner.SubdomainConfig) (string, error) {
 	jobID := fmt.Sprintf("subdomain-%d-%d", projectID, randInt())
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				wruntime.EventsEmit(a.ctx, "subdomain:error", fmt.Sprintf("内部错误: %v", r))
+			}
+		}()
 		if err := scanner.RunSubdomain(a.ctx, jobID, projectID, cfg); err != nil {
 			wruntime.EventsEmit(a.ctx, "subdomain:error", err.Error())
 		}
@@ -240,6 +255,11 @@ func (a *App) RunSubdomain(projectID int64, cfg scanner.SubdomainConfig) (string
 func (a *App) RunDns(projectID int64, cfg scanner.DnsConfig) (string, error) {
 	jobID := fmt.Sprintf("dns-%d-%d", projectID, randInt())
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				wruntime.EventsEmit(a.ctx, "dns:error", fmt.Sprintf("内部错误: %v", r))
+			}
+		}()
 		if err := scanner.RunDns(a.ctx, jobID, projectID, cfg); err != nil {
 			wruntime.EventsEmit(a.ctx, "dns:error", err.Error())
 		}
@@ -251,6 +271,11 @@ func (a *App) RunDns(projectID int64, cfg scanner.DnsConfig) (string, error) {
 func (a *App) RunNaabu(projectID int64, cfg scanner.NaabuConfig) (string, error) {
 	jobID := fmt.Sprintf("naabu-%d-%d", projectID, randInt())
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				wruntime.EventsEmit(a.ctx, "naabu:error", fmt.Sprintf("内部错误: %v", r))
+			}
+		}()
 		if err := scanner.RunNaabu(a.ctx, jobID, projectID, cfg); err != nil {
 			wruntime.EventsEmit(a.ctx, "naabu:error", err.Error())
 		}
@@ -258,7 +283,9 @@ func (a *App) RunNaabu(projectID int64, cfg scanner.NaabuConfig) (string, error)
 	return jobID, nil
 }
 
-// 随机一个数字
 func randInt() int64 {
-	return time.Now().UnixNano()
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return int64(uint64(b[0])<<56 | uint64(b[1])<<48 | uint64(b[2])<<40 | uint64(b[3])<<32 |
+		uint64(b[4])<<24 | uint64(b[5])<<16 | uint64(b[6])<<8 | uint64(b[7]))
 }

@@ -222,9 +222,9 @@ function close() {
       <template v-if="tool === 'subfinder'">
         <el-form-item label="并发 / 超时">
           <el-input-number v-model="sfThreads" :min="1" :max="200" style="width:100px" />
-          <span style="margin:0 12px;color:#aaa">线程</span>
+          <span style="margin:0 12px;color:var(--text-muted)">线程</span>
           <el-input-number v-model="sfTimeout" :min="5" :max="300" style="width:100px" />
-          <span style="margin-left:8px;color:#aaa">秒</span>
+          <span style="margin-left:8px;color:var(--text-muted)">秒</span>
           <el-checkbox v-model="sfAll" style="margin-left:16px">-all 全部源</el-checkbox>
         </el-form-item>
       </template>
@@ -301,30 +301,30 @@ function close() {
 .input-row { display: flex; gap: 10px; }
 .queue-area {
   margin-top: 10px; padding: 8px 10px;
-  background: #2a2d36; border-radius: 6px;
+  background: var(--bg-surface); border-radius: 6px;
   display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
 }
-.queue-area .label { color: #b8b8b8; font-size: 13px; margin-right: 6px; }
+.queue-area .label { color: var(--text-regular); font-size: 13px; margin-right: 6px; }
 .results-area { display: flex; flex-direction: column; gap: 6px; }
 .results-toolbar { display: flex; align-items: center; gap: 10px; }
 .result-list {
   padding: 8px 10px; max-height: 180px; overflow-y: auto;
-  background: #1a1c22; border: 1px solid #3a3e4a; border-radius: 6px;
+  background: var(--bg-log); border: 1px solid var(--border); border-radius: 6px;
   display: flex; flex-direction: column; gap: 2px;
 }
 .result-list :deep(.el-checkbox) { height: auto; margin-right: 0; }
 .progress-area {
   margin-top: 10px; padding: 8px 12px;
-  background: #2a2d36; border-radius: 6px;
+  background: var(--bg-surface); border-radius: 6px;
 }
 .meta { display: flex; justify-content: space-between; margin-top: 4px; font-size: 12px; }
-.time { color: #1890ff; font-weight: 600; }
-.muted { color: #aaaaaa; font-size: 12px; }
+.time { color: var(--accent); font-weight: 600; }
+.muted { color: var(--text-muted); font-size: 12px; }
 .log {
   margin-top: 8px; flex: 1; min-height: 100px; max-height: 200px; overflow-y: auto;
-  background: #1a1c22; color: #d4d4d4;
+  background: var(--bg-log); color: var(--text-regular);
   font-family: Consolas, monospace; font-size: 12px;
-  padding: 8px 10px; border-radius: 6px; border: 1px solid #3a3e4a;
+  padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border);
 }
 .log-line { white-space: pre-wrap; line-height: 1.4; }
 </style>

@@ -61,6 +61,7 @@ func migrate() error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_assets_project ON assets(project_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_assets_status  ON assets(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_assets_proj_type_status ON assets(project_id, type, status)`,
 	}
 	for _, s := range stmts {
 		if _, err := conn.Exec(s); err != nil {
@@ -69,5 +70,7 @@ func migrate() error {
 	}
 	// 兼容旧库：如果 tags 列不存在则添加
 	conn.Exec("ALTER TABLE assets ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'")
+	// 兼容旧库：如果 resolved_ips 列不存在则添加
+	conn.Exec("ALTER TABLE assets ADD COLUMN resolved_ips TEXT DEFAULT '[]'")
 	return nil
 }

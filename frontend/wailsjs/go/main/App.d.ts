@@ -26,7 +26,7 @@ export function ImportCSV(arg1:number,arg2:string):Promise<Record<string, any>>;
 
 export function ListAssets(arg1:number,arg2:string,arg3:string):Promise<Array<model.Asset>>;
 
-export function ListAssetsPage(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:number,arg9:number):Promise<db.AssetPageResult>;
+export function ListAssetsPage(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:number,arg8:number):Promise<db.AssetPageResult>;
 
 export function ListProjects(arg1:string):Promise<Array<model.Project>>;
 

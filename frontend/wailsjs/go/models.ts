@@ -45,6 +45,7 @@ export namespace model {
 	    port: string;
 	    sources: string[];
 	    tags: string[];
+	    resolved_ips: string[];
 	    status: string;
 	    status_code?: number;
 	    title: string;
@@ -66,6 +67,7 @@ export namespace model {
 	        this.port = source["port"];
 	        this.sources = source["sources"];
 	        this.tags = source["tags"];
+	        this.resolved_ips = source["resolved_ips"];
 	        this.status = source["status"];
 	        this.status_code = source["status_code"];
 	        this.title = source["title"];
@@ -155,6 +157,7 @@ export namespace scanner {
 	    only_ip: boolean;
 	    only_domain: boolean;
 	    skip_dns_failed: boolean;
+	    domain_network: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new HttpxConfig(source);
@@ -180,6 +183,7 @@ export namespace scanner {
 	        this.only_ip = source["only_ip"];
 	        this.only_domain = source["only_domain"];
 	        this.skip_dns_failed = source["skip_dns_failed"];
+	        this.domain_network = source["domain_network"];
 	    }
 	}
 	export class NaabuConfig {
@@ -197,6 +201,7 @@ export namespace scanner {
 	    only_alive: boolean;
 	    skip_dns_failed: boolean;
 	    use_ip_ports: boolean;
+	    domain_network: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new NaabuConfig(source);
@@ -218,6 +223,7 @@ export namespace scanner {
 	        this.only_alive = source["only_alive"];
 	        this.skip_dns_failed = source["skip_dns_failed"];
 	        this.use_ip_ports = source["use_ip_ports"];
+	        this.domain_network = source["domain_network"];
 	    }
 	}
 	export class RustscanConfig {
@@ -234,6 +240,7 @@ export namespace scanner {
 	    no_banner: boolean;
 	    skip_dns_failed: boolean;
 	    use_ip_ports: boolean;
+	    domain_network: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new RustscanConfig(source);
@@ -254,6 +261,7 @@ export namespace scanner {
 	        this.no_banner = source["no_banner"];
 	        this.skip_dns_failed = source["skip_dns_failed"];
 	        this.use_ip_ports = source["use_ip_ports"];
+	        this.domain_network = source["domain_network"];
 	    }
 	}
 	export class SubdomainConfig {

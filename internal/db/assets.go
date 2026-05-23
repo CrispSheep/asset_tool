@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 )
 
@@ -120,7 +121,7 @@ func AddPortAssets(projectID int64, host string, ports []int, source string) (in
 // ListAssets 列出资产，支持按 type / status 过滤，skipDnsFailed 跳过带 "DNS无效" 标签的
 func ListAssets(projectID int64, typeFilter, statusFilter string, skipDnsFailed ...bool) ([]model.Asset, error) {
 	q := `SELECT id, project_id, type, host, IFNULL(port,''), sources, IFNULL(tags,'[]'),
-	             IFNULL(status,''), status_code, IFNULL(title,''), IFNULL(server,''),
+	             IFNULL(resolved_ips,'[]'), IFNULL(status,''), status_code, IFNULL(title,''), IFNULL(server,''),
 	             IFNULL(tech,''), IFNULL(probed_at,''), created_at
 	      FROM assets WHERE project_id=?`
 	args := []any{projectID}
@@ -129,8 +130,14 @@ func ListAssets(projectID int64, typeFilter, statusFilter string, skipDnsFailed 
 		args = append(args, typeFilter)
 	}
 	if statusFilter != "" {
-		q += " AND status=?"
-		args = append(args, statusFilter)
+		if statusFilter == "non-http" {
+			q += ` AND (IFNULL(port,'') NOT IN ('', '80', '443', '8080', '8443', '8000', '8888'))`
+		} else if statusFilter == "unprobed" {
+			q += " AND (status IS NULL OR status='')"
+		} else {
+			q += " AND status=?"
+			args = append(args, statusFilter)
+		}
 	}
 	if len(skipDnsFailed) > 0 && skipDnsFailed[0] {
 		q += ` AND NOT (tags LIKE '%DNS无效%')`
@@ -146,11 +153,11 @@ func ListAssets(projectID int64, typeFilter, statusFilter string, skipDnsFailed 
 	var result []model.Asset
 	for rows.Next() {
 		var a model.Asset
-		var srcRaw, tagsRaw string
+		var srcRaw, tagsRaw, ripRaw string
 		var statusCode sql.NullInt64
 		err := rows.Scan(
 			&a.ID, &a.ProjectID, &a.Type, &a.Host, &a.Port, &srcRaw, &tagsRaw,
-			&a.Status, &statusCode, &a.Title, &a.Server,
+			&ripRaw, &a.Status, &statusCode, &a.Title, &a.Server,
 			&a.Tech, &a.ProbedAt, &a.CreatedAt,
 		)
 		if err != nil {
@@ -167,6 +174,10 @@ func ListAssets(projectID int64, typeFilter, statusFilter string, skipDnsFailed 
 		_ = json.Unmarshal([]byte(tagsRaw), &a.Tags)
 		if a.Tags == nil {
 			a.Tags = []string{}
+		}
+		_ = json.Unmarshal([]byte(ripRaw), &a.ResolvedIPs)
+		if a.ResolvedIPs == nil {
+			a.ResolvedIPs = []string{}
 		}
 		result = append(result, a)
 	}
@@ -249,17 +260,26 @@ func DeleteAssets(ids []int64) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	tx, err := conn.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	for _, id := range ids {
-		if _, err := tx.Exec("DELETE FROM assets WHERE id=?", id); err != nil {
+	// SQLite 有变量上限，分批处理
+	const batchSize = 500
+	for i := 0; i < len(ids); i += batchSize {
+		end := i + batchSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+		batch := ids[i:end]
+		placeholders := make([]string, len(batch))
+		args := make([]any, len(batch))
+		for j, id := range batch {
+			placeholders[j] = "?"
+			args[j] = id
+		}
+		q := "DELETE FROM assets WHERE id IN (" + strings.Join(placeholders, ",") + ")"
+		if _, err := conn.Exec(q, args...); err != nil {
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 // GetAllHosts 取项目所有 host[:port] 用于探活/端口扫描输入
@@ -411,6 +431,13 @@ func AddDnsResolvedIPs(projectID int64, domain string, ips []string) (int, error
 	// 给域名加标签 "DNS✓"
 	addTagInTx(tx, projectID, domain, "DNS✓")
 
+	// 在域名资产行上记录解析出的 IP 列表
+	ipJSON, _ := json.Marshal(ips)
+	_, _ = tx.Exec(
+		"UPDATE assets SET resolved_ips=? WHERE project_id=? AND host=? AND type='domain' AND IFNULL(port,'')=''",
+		string(ipJSON), projectID, domain,
+	)
+
 	return added, tx.Commit()
 }
 
@@ -476,7 +503,7 @@ type AssetPageResult struct {
 }
 
 // ListAssetsPage 分页列出资产
-func ListAssetsPage(projectID int64, typeFilter, statusFilter, keyword, networkFilter, sortBy, sortOrder string, page, pageSize int) (AssetPageResult, error) {
+func ListAssetsPage(projectID int64, typeFilter, statusFilter, keyword, networkFilter, sortsJSON string, page, pageSize int) (AssetPageResult, error) {
 	var result AssetPageResult
 	if page < 1 {
 		page = 1
@@ -496,6 +523,8 @@ func ListAssetsPage(projectID int64, typeFilter, statusFilter, keyword, networkF
 	if statusFilter != "" {
 		if statusFilter == "unprobed" {
 			where += " AND (status IS NULL OR status='')"
+		} else if statusFilter == "non-http" {
+			where += ` AND (IFNULL(port,'') NOT IN ('', '80', '443', '8080', '8443', '8000', '8888'))`
 		} else {
 			where += " AND status=?"
 			args = append(args, statusFilter)
@@ -518,24 +547,39 @@ func ListAssetsPage(projectID int64, typeFilter, statusFilter, keyword, networkF
 		return result, fmt.Errorf("count: %w", err)
 	}
 
-	// 排序
+	// 排序（支持多列）
 	allowedCols := map[string]string{
 		"host": "host", "port": "IFNULL(port,'')", "status": "IFNULL(status,'')",
 		"status_code": "status_code", "title": "IFNULL(title,'')", "server": "IFNULL(server,'')",
 		"probed_at": "IFNULL(probed_at,'')", "created_at": "created_at",
 	}
 	orderClause := "ORDER BY created_at DESC, id DESC"
-	if col, ok := allowedCols[sortBy]; ok {
-		dir := "ASC"
-		if sortOrder == "desc" {
-			dir = "DESC"
+	var sorts []struct {
+		Key   string `json:"key"`
+		Order string `json:"order"`
+	}
+	if sortsJSON != "" {
+		_ = json.Unmarshal([]byte(sortsJSON), &sorts)
+	}
+	if len(sorts) > 0 {
+		var parts []string
+		for _, s := range sorts {
+			if col, ok := allowedCols[s.Key]; ok {
+				dir := "ASC"
+				if s.Order == "desc" {
+					dir = "DESC"
+				}
+				parts = append(parts, col+" "+dir)
+			}
 		}
-		orderClause = fmt.Sprintf("ORDER BY %s %s, id DESC", col, dir)
+		if len(parts) > 0 {
+			orderClause = "ORDER BY " + strings.Join(parts, ", ") + ", id DESC"
+		}
 	}
 
 	// 查分页数据
 	q := `SELECT id, project_id, type, host, IFNULL(port,''), sources, IFNULL(tags,'[]'),
-	             IFNULL(status,''), status_code, IFNULL(title,''), IFNULL(server,''),
+	             IFNULL(resolved_ips,'[]'), IFNULL(status,''), status_code, IFNULL(title,''), IFNULL(server,''),
 	             IFNULL(tech,''), IFNULL(probed_at,''), created_at
 	      FROM assets ` + where + " " + orderClause + " LIMIT ? OFFSET ?"
 	args = append(args, pageSize, offset)
@@ -548,11 +592,11 @@ func ListAssetsPage(projectID int64, typeFilter, statusFilter, keyword, networkF
 
 	for rows.Next() {
 		var a model.Asset
-		var srcRaw, tagsRaw string
+		var srcRaw, tagsRaw, ripRaw string
 		var statusCode sql.NullInt64
 		err := rows.Scan(
 			&a.ID, &a.ProjectID, &a.Type, &a.Host, &a.Port, &srcRaw, &tagsRaw,
-			&a.Status, &statusCode, &a.Title, &a.Server,
+			&ripRaw, &a.Status, &statusCode, &a.Title, &a.Server,
 			&a.Tech, &a.ProbedAt, &a.CreatedAt,
 		)
 		if err != nil {
@@ -569,6 +613,10 @@ func ListAssetsPage(projectID int64, typeFilter, statusFilter, keyword, networkF
 		_ = json.Unmarshal([]byte(tagsRaw), &a.Tags)
 		if a.Tags == nil {
 			a.Tags = []string{}
+		}
+		_ = json.Unmarshal([]byte(ripRaw), &a.ResolvedIPs)
+		if a.ResolvedIPs == nil {
+			a.ResolvedIPs = []string{}
 		}
 		result.Items = append(result.Items, a)
 	}
@@ -606,6 +654,72 @@ func CountAssetStats(projectID int64) (map[string]int, error) {
 		"unprobed": unprobed,
 		"ports":    ports,
 	}, nil
+}
+
+// GetDomainHostsByNetwork 根据域名解析 IP 的网络类型过滤域名
+// networkType: "extranet" = 仅返回解析 IP 全部为外网的域名
+//              "intranet" = 仅返回解析 IP 含内网的域名
+func GetDomainHostsByNetwork(projectID int64, networkType string) ([]string, error) {
+	rows, err := conn.Query(
+		"SELECT host, IFNULL(resolved_ips,'[]') FROM assets WHERE project_id=? AND type='domain' AND IFNULL(port,'')='' AND resolved_ips IS NOT NULL AND resolved_ips<>'[]'",
+		projectID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var hosts []string
+	for rows.Next() {
+		var host, ripRaw string
+		if err := rows.Scan(&host, &ripRaw); err != nil {
+			return nil, err
+		}
+		var ips []string
+		_ = json.Unmarshal([]byte(ripRaw), &ips)
+		if len(ips) == 0 {
+			continue
+		}
+
+		if networkType == "extranet" {
+			// 仅当所有 IP 都是外网时才包含
+			allExternal := true
+			for _, ip := range ips {
+				if isInternalIP(ip) {
+					allExternal = false
+					break
+				}
+			}
+			if allExternal {
+				hosts = append(hosts, host)
+			}
+		} else if networkType == "intranet" {
+			// 只要有一个 IP 是内网就包含
+			for _, ip := range ips {
+				if isInternalIP(ip) {
+					hosts = append(hosts, host)
+					break
+				}
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return hosts, nil
+}
+
+// isInternalIP 判断 IP 是否为内网地址
+func isInternalIP(ip string) bool {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return false
+	}
+	// IsPrivate() covers 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, fc00::/7
+	if parsed.IsPrivate() || parsed.IsLoopback() {
+		return true
+	}
+	return false
 }
 
 func nullable(s string) any {

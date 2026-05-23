@@ -26,6 +26,7 @@ const onlyDomain = ref(false)
 const onlyAlive = ref(false)
 const skipDnsFailed = ref(true)
 const useIPPorts = ref(false)
+const domainNetwork = ref('')
 
 watch(onlyIP, v => { if (v) onlyDomain.value = false })
 watch(onlyDomain, v => { if (v) onlyIP.value = false })
@@ -139,6 +140,7 @@ async function start() {
       only_alive: onlyAlive.value,
       skip_dns_failed: skipDnsFailed.value,
       use_ip_ports: useIPPorts.value,
+      domain_network: domainNetwork.value,
     })
   } catch (e: any) {
     running.value = false
@@ -181,7 +183,7 @@ function hide() {
   <el-dialog
     v-model="visible"
     title="端口扫描 (naabu)"
-    width="60%"
+    width="65%"
     top="5vh"
     draggable
     :close-on-click-modal="false"
@@ -279,6 +281,17 @@ function hide() {
         <el-tooltip content="用 IP 资产已扫到的端口列表作为扫描范围，适合先扫 IP 再扫域名的场景"><el-icon><InfoFilled /></el-icon></el-tooltip>
       </el-checkbox>
     </div>
+    <div v-if="onlyDomain" style="padding: 4px 8px 8px; display: flex; align-items: center; gap: 8px">
+      <span style="font-size: 13px; color: var(--text-muted)">域名网络：</span>
+      <el-select v-model="domainNetwork" size="small" style="width: 180px">
+        <el-option label="全部域名" value="" />
+        <el-option label="仅外网域名" value="extranet" />
+        <el-option label="仅内网域名" value="intranet" />
+      </el-select>
+      <el-tooltip content="根据 DNS 解析出的 IP 判断域名指向内网还是外网">
+        <el-icon style="color: var(--text-muted)"><InfoFilled /></el-icon>
+      </el-tooltip>
+    </div>
 
     <!-- 进度（naabu 全局并发，没有 host 维度的进度，用 indeterminate 风格） -->
     <div v-if="running || portsFound > 0" class="progress-area">
@@ -319,13 +332,13 @@ function hide() {
 }
 .checkbox-row .el-icon {
   margin-left: 4px;
-  color: #909090;
+  color: var(--text-muted);
   vertical-align: -2px;
 }
 .progress-area {
   margin-top: 12px;
   padding: 8px 12px;
-  background: #2a2d36;
+  background: var(--bg-surface);
   border-radius: 6px;
 }
 .meta {
@@ -334,20 +347,20 @@ function hide() {
   margin-top: 4px;
   font-size: 12px;
 }
-.time { color: #1890ff; font-weight: 600; }
-.muted { color: #aaaaaa; }
+.time { color: var(--accent); font-weight: 600; }
+.muted { color: var(--text-muted); }
 .log {
   margin-top: 10px;
   flex: 1;
   min-height: 120px;
   overflow-y: auto;
-  background: #1a1c22;
-  color: #d4d4d4;
+  background: var(--bg-log);
+  color: var(--text-regular);
   font-family: Consolas, monospace;
   font-size: 12px;
   padding: 8px 10px;
   border-radius: 6px;
-  border: 1px solid #3a3e4a;
+  border: 1px solid var(--border);
 }
 .log-line {
   white-space: pre-wrap;

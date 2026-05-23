@@ -3,7 +3,8 @@ import { ref, computed, onMounted, watch, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, ElTag, ElCheckbox } from 'element-plus'
 import {
-  ArrowLeft, Upload, Search, Delete, DocumentCopy, Download, Aim, Connection, Share, Document,
+  ArrowLeft, ArrowDown, Upload, Search, Delete, DocumentCopy, Download, Aim, Connection, Share, Document,
+  Monitor, Moon, Sunny,
 } from '@element-plus/icons-vue'
 import {
   ListAssetsPage, ListAssets, CountAssetStats, DeleteAssets, GetSetting, SetSetting,
@@ -18,11 +19,14 @@ import NaabuDialog from '../components/NaabuDialog.vue'
 import SubdomainDialog from '../components/SubdomainDialog.vue'
 import NoteDialog from '../components/NoteDialog.vue'
 import DnsDialog from '../components/DnsDialog.vue'
+import { useTheme } from '../composables/useTheme'
+
+const { theme, cycleTheme } = useTheme()
 
 const route = useRoute()
 const router = useRouter()
 const projectId = Number(route.params.id)
-const projectName = (route.query.name as string) || `项目 #${projectId}`
+const projectName = computed(() => (route.query.name as string) || `项目 #${projectId}`)
 
 const tab = ref<'ip' | 'domain'>('ip')
 const assets = ref<model.Asset[]>([])
@@ -34,8 +38,7 @@ const filterMode = ref<'all' | 'alive' | 'non-http' | 'unprobed' | 'dead'>('all'
 const networkFilter = ref<'all' | 'intranet' | 'extranet'>('all')
 const page = ref(1)
 const pageSize = ref(50)
-const sortBy = ref('')
-const sortOrder = ref<'asc' | 'desc'>('asc')
+const sorts = ref<Array<{ key: string, order: 'asc' | 'desc' }>>([])
 
 // 统计仪表盘数据（独立请求，不依赖分页）
 const stats = ref<Record<string, number>>({ total: 0, ip: 0, domain: 0, alive: 0, dead: 0, unprobed: 0, ports: 0 })
@@ -55,7 +58,7 @@ function getStatusFilter(): string {
     case 'alive': return 'alive'
     case 'dead': return 'dead'
     case 'unprobed': return 'unprobed'
-    case 'non-http': return 'dead'
+    case 'non-http': return 'non-http'
     default: return ''
   }
 }
@@ -84,17 +87,11 @@ async function fetchPage() {
       getStatusFilter(),
       search.value.trim(),
       networkFilter.value === 'all' ? '' : networkFilter.value,
-      sortBy.value,
-      sortOrder.value,
+      JSON.stringify(sorts.value),
       page.value,
       pageSize.value,
     )
-    let items = res.items || []
-    if (filterMode.value === 'non-http') {
-      const httpPorts = new Set(['', '80', '443', '8080', '8443', '8000', '8888'])
-      items = items.filter(a => !httpPorts.has(a.port || ''))
-    }
-    assets.value = items
+    assets.value = res.items || []
     totalCount.value = res.total || 0
   } catch (e: any) {
     ElMessage.error('加载失败: ' + e)
@@ -260,6 +257,14 @@ async function exportTXT() {
   download(`${projectName}_${tab.value}.txt`, lines.join('\n'))
 }
 
+function csvEscape(v: any): string {
+  const s = String(v ?? '')
+  if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+    return '"' + s.replace(/"/g, '""') + '"'
+  }
+  return s
+}
+
 async function exportCSV() {
   const all = await fetchAllAssets()
   if (all.length === 0) {
@@ -269,8 +274,8 @@ async function exportCSV() {
   const header = ['host', 'port', 'type', 'sources', 'status', 'status_code', 'title', 'server']
   const rows = all.map((a) => [
     a.host, a.port, a.type, (a.sources || []).join(', '),
-    a.status || '', a.status_code ?? '', (a.title || '').replace(/,/g, ' '), a.server || '',
-  ])
+    a.status || '', a.status_code ?? '', a.title || '', a.server || '',
+  ].map(csvEscape))
   const csv = '﻿' + [header, ...rows].map((r) => r.join(',')).join('\n')
   download(`${projectName}_${tab.value}.csv`, csv)
 }
@@ -352,19 +357,30 @@ function onColumnResize(col: any, width: number) {
 }
 
 function toggleSort(key: string) {
-  if (sortBy.value === key) {
-    if (sortOrder.value === 'asc') {
-      sortOrder.value = 'desc'
-    } else {
-      sortBy.value = ''
-      sortOrder.value = 'asc'
-    }
+  const idx = sorts.value.findIndex(s => s.key === key)
+  if (idx === -1) {
+    // 新列，加入排序末尾
+    sorts.value.push({ key, order: 'asc' })
+  } else if (sorts.value[idx].order === 'asc') {
+    // 已有 ASC → 改 DESC
+    sorts.value[idx].order = 'desc'
   } else {
-    sortBy.value = key
-    sortOrder.value = 'asc'
+    // 已有 DESC → 移除
+    sorts.value.splice(idx, 1)
   }
+  sorts.value = [...sorts.value]
   page.value = 1
   fetchPage()
+}
+
+function clearSorts() {
+  sorts.value = []
+  page.value = 1
+  fetchPage()
+}
+
+function sortIndex(key: string): number {
+  return sorts.value.findIndex(s => s.key === key)
 }
 
 const SORTABLE_COLS = new Set(['host', 'port', 'status', 'status_code', 'title', 'server', 'probed_at'])
@@ -373,7 +389,8 @@ const SORTABLE_COLS = new Set(['host', 'port', 'status', 'status_code', 'title',
 function makeResizableHeader(key: string, title: string) {
   return () => {
     const sortable = SORTABLE_COLS.has(key)
-    const isActive = sortBy.value === key
+    const si = sortIndex(key)
+    const sortObj = si >= 0 ? sorts.value[si] : null
     const children = [
       h('span', {
         class: ['th-title', sortable ? 'th-sortable' : ''],
@@ -381,9 +398,10 @@ function makeResizableHeader(key: string, title: string) {
       }, [
         title,
         sortable ? h('span', { class: 'th-sort-icons' }, [
-          h('span', { class: ['th-sort-arrow', 'up', isActive && sortOrder.value === 'asc' ? 'active' : ''] }, '▲'),
-          h('span', { class: ['th-sort-arrow', 'down', isActive && sortOrder.value === 'desc' ? 'active' : ''] }, '▼'),
+          h('span', { class: ['th-sort-arrow', 'up', sortObj?.order === 'asc' ? 'active' : ''] }, '▲'),
+          h('span', { class: ['th-sort-arrow', 'down', sortObj?.order === 'desc' ? 'active' : ''] }, '▼'),
         ]) : null,
+        sorts.value.length > 1 && si >= 0 ? h('span', { class: 'th-sort-badge' }, String(si + 1)) : null,
       ]),
       h('div', {
         class: 'th-resize-handle',
@@ -499,88 +517,122 @@ onMounted(async () => {
 
 <template>
   <div class="page">
-    <!-- 顶部导航 -->
+    <!-- 顶部：返回 + 项目名 + 搜索 -->
     <div class="header">
-      <el-button :icon="ArrowLeft" @click="router.back()">返回</el-button>
+      <el-button :icon="ArrowLeft" link @click="router.back()" class="back-btn" />
       <h2>{{ projectName }}</h2>
       <span class="muted">#{{ projectId }}</span>
       <div class="spacer" />
+      <el-input
+        v-model="search"
+        :prefix-icon="Search"
+        placeholder="搜索 host / 状态码 / title / server …"
+        clearable
+        class="header-search"
+        @input="onSearchInput"
+        @clear="() => { page = 1; fetchPage() }"
+      />
+      <el-tooltip :content="theme === 'system' ? '跟随系统' : theme === 'dark' ? '暗色模式' : '亮色模式'" placement="bottom">
+        <el-button :icon="theme === 'system' ? Monitor : theme === 'dark' ? Moon : Sunny" circle size="small" @click="cycleTheme" />
+      </el-tooltip>
     </div>
 
-    <!-- 操作栏 -->
+    <!-- 工具栏：分组下拉 + 笔记 -->
     <div class="toolbar">
-      <el-button :icon="Upload" @click="importVisible = true">导入资产</el-button>
-      <el-button :icon="Share" @click="subdomainVisible = true">子域名探测</el-button>
-      <el-button :icon="Aim" type="warning" plain @click="dnsVisible = true">DNS 解析</el-button>
-      <el-button :icon="Aim" type="primary" plain @click="httpxVisible = true">探活 (httpx)</el-button>
-      <el-button :icon="Connection" type="primary" plain @click="rustscanVisible = true">端口扫描 (rustscan)</el-button>
-      <el-button :icon="Connection" type="primary" plain @click="naabuVisible = true">端口扫描 (naabu)</el-button>
-      <el-button :icon="Document" @click="noteVisible = true">📝 笔记</el-button>
-      <div class="spacer" />
-      <el-select v-model="filterMode" style="width: 180px">
+      <el-dropdown trigger="click" @command="(c: string) => { if (c === 'import') importVisible = true; else if (c === 'subdomain') subdomainVisible = true }">
+        <el-button :icon="Upload" type="primary" plain>
+          资产采集 <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+        </el-button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item :icon="Upload" command="import">导入资产</el-dropdown-item>
+            <el-dropdown-item :icon="Share" command="subdomain">子域名探测</el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+
+      <el-dropdown trigger="click" @command="(c: string) => {
+        if (c === 'dns') dnsVisible = true;
+        else if (c === 'httpx') httpxVisible = true;
+        else if (c === 'rustscan') rustscanVisible = true;
+        else if (c === 'naabu') naabuVisible = true;
+      }">
+        <el-button :icon="Aim" type="primary" plain>
+          分析探测 <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+        </el-button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item :icon="Aim" command="dns">DNS 解析</el-dropdown-item>
+            <el-dropdown-item :icon="Aim" command="httpx">探活 (httpx)</el-dropdown-item>
+            <el-dropdown-item :icon="Connection" command="rustscan">端口扫描 (rustscan)</el-dropdown-item>
+            <el-dropdown-item :icon="Connection" command="naabu">端口扫描 (naabu)</el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+
+      <el-button :icon="Document" @click="noteVisible = true">笔记</el-button>
+
+      <!-- 统计条 -->
+      <div class="stats-strip">
+        <span class="ss-item"><b class="ss-num ss-total">{{ stats.total }}</b> 总资产</span>
+        <span class="ss-sep" />
+        <span class="ss-item"><b class="ss-num ss-ip">{{ stats.ip }}</b> IP</span>
+        <span class="ss-item"><b class="ss-num ss-domain">{{ stats.domain }}</b> 域名</span>
+        <span class="ss-sep" />
+        <span class="ss-item"><b class="ss-num ss-alive">{{ stats.alive }}</b> 存活</span>
+        <span class="ss-item"><b class="ss-num ss-dead">{{ stats.dead }}</b> 死亡</span>
+        <span class="ss-item"><b class="ss-num ss-unprobed">{{ stats.unprobed }}</b> 未探活</span>
+        <span class="ss-sep" />
+        <span class="ss-item"><b class="ss-num ss-ports">{{ stats.ports }}</b> 端口</span>
+      </div>
+    </div>
+
+    <!-- 过滤 + 操作栏 -->
+    <div class="filter-bar">
+      <el-tabs v-model="tab" class="inline-tabs">
+        <el-tab-pane :label="tabLabel('ip')" name="ip" />
+        <el-tab-pane :label="tabLabel('domain')" name="domain" />
+      </el-tabs>
+      <el-select v-model="filterMode" size="small" style="width: 140px">
         <el-option label="全部状态" value="all" />
         <el-option label="仅 HTTP 存活" value="alive" />
         <el-option label="仅非 HTTP 服务" value="non-http" />
         <el-option label="仅未探活" value="unprobed" />
         <el-option label="仅 dead" value="dead" />
       </el-select>
-      <el-select v-if="tab === 'ip'" v-model="networkFilter" style="width: 140px">
+      <el-select v-if="tab === 'ip'" v-model="networkFilter" size="small" style="width: 120px">
         <el-option label="全部网段" value="all" />
         <el-option label="内网 IP" value="intranet" />
         <el-option label="外网 IP" value="extranet" />
       </el-select>
-      <el-button :icon="DocumentCopy" @click="copyVisible">复制可见</el-button>
-      <el-button :icon="Download" @click="exportTXT">导出 TXT</el-button>
-      <el-button :icon="Download" @click="exportCSV">导出 CSV</el-button>
-      <el-button :icon="Delete" type="danger" plain @click="deleteVisible">删除可见</el-button>
+      <el-button v-if="sorts.length > 0" size="small" link type="info" @click="clearSorts">
+        清除排序 ({{ sorts.length }})
+      </el-button>
+      <div class="spacer" />
+      <el-dropdown trigger="click" @command="(c: string) => {
+        if (c === 'copy') copyVisible();
+        else if (c === 'txt') exportTXT();
+        else if (c === 'csv') exportCSV();
+        else if (c === 'delete') deleteVisible();
+      }">
+        <el-button size="small">
+          操作 <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+        </el-button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item :icon="DocumentCopy" command="copy">复制可见</el-dropdown-item>
+            <el-dropdown-item :icon="Download" command="txt">导出 TXT</el-dropdown-item>
+            <el-dropdown-item :icon="Download" command="csv">导出 CSV</el-dropdown-item>
+            <el-dropdown-item :icon="Delete" command="delete" divided>删除可见</el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
     </div>
-
-    <!-- 统计仪表盘 -->
-    <div class="stats-bar">
-      <div class="stat-card">
-        <span class="stat-num">{{ stats.total }}</span>
-        <span class="stat-label">总资产</span>
-      </div>
-      <div class="stat-card stat-ip">
-        <span class="stat-num">{{ stats.ip }}</span>
-        <span class="stat-label">IP</span>
-      </div>
-      <div class="stat-card stat-domain">
-        <span class="stat-num">{{ stats.domain }}</span>
-        <span class="stat-label">域名</span>
-      </div>
-      <div class="stat-card stat-alive">
-        <span class="stat-num">{{ stats.alive }}</span>
-        <span class="stat-label">存活</span>
-      </div>
-      <div class="stat-card stat-dead">
-        <span class="stat-num">{{ stats.dead }}</span>
-        <span class="stat-label">死亡</span>
-      </div>
-      <div class="stat-card stat-unprobed">
-        <span class="stat-num">{{ stats.unprobed }}</span>
-        <span class="stat-label">未探活</span>
-      </div>
-      <div class="stat-card stat-ports">
-        <span class="stat-num">{{ stats.ports }}</span>
-        <span class="stat-label">开放端口</span>
-      </div>
-    </div>
-
-    <!-- 搜索 -->
-    <el-input
-      v-model="search"
-      :prefix-icon="Search"
-      placeholder="搜索 host / 状态码 / title / server …"
-      clearable
-      @input="onSearchInput"
-      @clear="() => { page = 1; fetchPage() }"
-    />
 
     <!-- 选中后的批量操作条 -->
     <div v-if="selected.length > 0" class="batch-bar">
       已选中 {{ selected.length }} 条
-      <el-dropdown trigger="click" @command="(tag: string) => { BatchAddTag(selected.map(a=>a.id), tag).then(refresh) }">
+      <el-dropdown trigger="click" @command="(tag: string) => { if (tag !== '__custom__') BatchAddTag(selected.map(a=>a.id), tag).then(refresh) }">
         <el-button size="small" type="primary">打标签</el-button>
         <template #dropdown>
           <el-dropdown-menu>
@@ -593,12 +645,7 @@ onMounted(async () => {
       <el-button size="small" link @click="selected = []; selectedIds = new Set()">取消选择</el-button>
     </div>
 
-    <!-- Tabs + 表格 -->
-    <el-tabs v-model="tab" class="tabs-area">
-      <el-tab-pane :label="tabLabel('ip')" name="ip" />
-      <el-tab-pane :label="tabLabel('domain')" name="domain" />
-    </el-tabs>
-
+    <!-- 表格 -->
     <div class="table-wrap" v-loading="loading">
       <el-auto-resizer>
         <template #default="{ height, width }">
@@ -629,124 +676,155 @@ onMounted(async () => {
       />
     </div>
 
-    <ImportDialog
-      v-model:visible="importVisible"
-      :project-id="projectId"
-      @imported="refresh"
-    />
-
-    <HttpxDialog
-      v-model:visible="httpxVisible"
-      :project-id="projectId"
-      @probed="refresh"
-    />
-
-    <RustscanDialog
-      v-model:visible="rustscanVisible"
-      :project-id="projectId"
-      @scanned="refresh"
-    />
-
-    <NaabuDialog
-      v-model:visible="naabuVisible"
-      :project-id="projectId"
-      @scanned="refresh"
-    />
-
-    <SubdomainDialog
-      v-model:visible="subdomainVisible"
-      :project-id="projectId"
-      @discovered="refresh"
-    />
-
-    <NoteDialog
-      v-model:visible="noteVisible"
-      :project-id="projectId"
-      :project-name="projectName"
-    />
-
-    <DnsDialog
-      v-model:visible="dnsVisible"
-      :project-id="projectId"
-      @resolved="refresh"
-    />
+    <ImportDialog v-model:visible="importVisible" :project-id="projectId" @imported="refresh" />
+    <HttpxDialog v-model:visible="httpxVisible" :project-id="projectId" @probed="refresh" />
+    <RustscanDialog v-model:visible="rustscanVisible" :project-id="projectId" @scanned="refresh" />
+    <NaabuDialog v-model:visible="naabuVisible" :project-id="projectId" @scanned="refresh" />
+    <SubdomainDialog v-model:visible="subdomainVisible" :project-id="projectId" @discovered="refresh" />
+    <NoteDialog v-model:visible="noteVisible" :project-id="projectId" :project-name="projectName" />
+    <DnsDialog v-model:visible="dnsVisible" :project-id="projectId" @resolved="refresh" />
   </div>
 </template>
 
 <style scoped>
 .page {
   height: 100vh;
-  padding: 16px 20px;
+  padding: 14px 18px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   box-sizing: border-box;
 }
 .header {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 .header h2 {
   margin: 0;
-  color: #fff;
+  color: var(--text-primary);
+  font-size: 17px;
+  font-weight: 600;
+}
+.back-btn {
   font-size: 18px;
+  color: var(--text-muted);
+}
+.back-btn:hover {
+  color: var(--text-primary);
 }
 .muted {
-  color: #6c7080;
-  font-size: 13px;
+  color: var(--text-dimmed);
+  font-size: 12px;
+}
+.header-search {
+  width: 280px;
 }
 .spacer {
   flex: 1;
 }
+
+/* ── 工具栏 ────────────────────────────────── */
 .toolbar {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
+
+/* ── 统计条 ────────────────────────────────── */
+.stats-strip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+  padding: 4px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.ss-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ss-num {
+  font-size: 14px;
+  font-weight: 700;
+  font-style: normal;
+}
+.ss-sep {
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+}
+.ss-total { color: var(--text-primary); }
+.ss-ip { color: var(--accent); }
+.ss-domain { color: var(--info-purple); }
+.ss-alive { color: var(--success); }
+.ss-dead { color: var(--danger); }
+.ss-unprobed { color: var(--text-dimmed); }
+.ss-ports { color: var(--warning); }
+
+/* ── 过滤栏 ────────────────────────────────── */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.inline-tabs {
+  margin-bottom: -2px;
+}
+:deep(.inline-tabs .el-tabs__header) {
+  margin: 0;
+}
+:deep(.inline-tabs .el-tabs__item) {
+  color: var(--text-muted);
+  font-size: 13px;
+  height: 32px;
+  line-height: 32px;
+}
+:deep(.inline-tabs .el-tabs__item:hover) {
+  color: var(--text-regular);
+}
+:deep(.inline-tabs .el-tabs__item.is-active) {
+  color: var(--accent);
+  font-weight: 600;
+}
+:deep(.inline-tabs .el-tabs__active-bar) {
+  background-color: var(--accent);
+  height: 2px;
+}
+:deep(.inline-tabs .el-tabs__nav-wrap::after) {
+  background-color: transparent;
+}
+
+/* ── 批量操作条 ────────────────────────────── */
 .batch-bar {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 6px 12px;
-  background: #25282f;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: #1890ff;
+  color: var(--accent);
+  font-size: 13px;
 }
-.tabs-area {
-  margin-bottom: -8px;
-}
-:deep(.el-tabs__item) {
-  color: #b8b8b8;
-  font-size: 14px;
-}
-:deep(.el-tabs__item:hover) {
-  color: #ffffff;
-}
-:deep(.el-tabs__item.is-active) {
-  color: #1890ff;
-  font-weight: 600;
-}
-:deep(.el-tabs__active-bar) {
-  background-color: #1890ff;
-}
-:deep(.el-tabs__nav-wrap::after) {
-  background-color: #3a3e4a;
-}
-.asset-table {
-  flex: 1;
-  background: transparent !important;
-}
+
+/* ── 表格 ──────────────────────────────────── */
 .table-wrap {
   flex: 1;
-  border: 1px solid #3a3e4a;
+  border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
-  background: #25282f;
+  background: var(--bg-card);
 }
 .host-link {
-  color: #40a9ff;
+  color: var(--accent-hover);
   cursor: pointer;
   text-decoration: none;
 }
@@ -760,52 +838,52 @@ onMounted(async () => {
 :deep(.el-table-v2__main),
 :deep(.el-table-v2__body),
 :deep(.el-table-v2 [role="grid"]) {
-  background-color: #25282f !important;
+  background-color: var(--bg-card) !important;
 }
 :deep(.el-table-v2__header),
 :deep(.el-table-v2__header-row),
 :deep(.el-table-v2__header-cell) {
-  background-color: #2a2d36 !important;
-  color: #b8b8b8;
+  background-color: var(--bg-surface) !important;
+  color: var(--text-regular);
   font-weight: 600;
 }
 :deep(.el-table-v2__row),
 :deep(.el-table-v2__row-cell) {
-  background-color: #25282f !important;
-  color: #e8e8e8;
-  border-bottom: 1px solid #2f323a;
+  background-color: var(--bg-card) !important;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-light);
 }
 :deep(.el-table-v2__row:hover),
 :deep(.el-table-v2__row:hover .el-table-v2__row-cell) {
-  background-color: #2f323a !important;
+  background-color: var(--border-light) !important;
 }
 :deep(.el-table-v2__empty) {
-  background-color: #25282f !important;
-  color: #6c7080;
+  background-color: var(--bg-card) !important;
+  color: var(--text-dimmed);
 }
 :deep(.el-vl__wrapper),
 :deep(.el-virtual-scrollbar),
 :deep(.el-table-v2__body .el-vl__wrapper > div) {
-  background-color: #25282f !important;
+  background-color: var(--bg-card) !important;
 }
 
-/* 列分隔线（默认细线，hover 加粗变蓝） */
+/* 列分隔线 */
 :deep(.el-table-v2__header-cell) {
   position: relative;
-  border-right: 1px solid #3a3e4a;
+  border-right: 1px solid var(--border);
   padding: 0 !important;
 }
 :deep(.el-table-v2__header-cell:last-child) {
   border-right: none;
 }
 :deep(.el-table-v2__row-cell) {
-  border-right: 1px solid #2f323a;
+  border-right: 1px solid var(--border-light);
 }
 :deep(.el-table-v2__row-cell:last-child) {
   border-right: none;
 }
 
-/* 自定义可拖拽表头 */
+/* 可拖拽表头 */
 :deep(.resizable-th) {
   position: relative;
   width: 100%;
@@ -829,7 +907,7 @@ onMounted(async () => {
   cursor: pointer;
 }
 :deep(.th-sortable:hover) {
-  color: #e8e8e8;
+  color: var(--text-primary);
 }
 :deep(.th-sort-icons) {
   display: inline-flex;
@@ -841,12 +919,26 @@ onMounted(async () => {
   flex-shrink: 0;
 }
 :deep(.th-sort-arrow) {
-  color: #555;
+  color: var(--text-dimmed);
   line-height: 1;
   transition: color 0.15s;
 }
 :deep(.th-sort-arrow.active) {
-  color: #1890ff;
+  color: var(--accent);
+}
+:deep(.th-sort-badge) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  height: 14px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent);
+  border-radius: 50%;
+  margin-left: 3px;
+  line-height: 1;
 }
 :deep(.th-resize-handle) {
   position: absolute;
@@ -861,133 +953,54 @@ onMounted(async () => {
 }
 :deep(.th-resize-handle:hover),
 :deep(.th-resize-handle:active) {
-  background-color: rgba(24, 144, 255, 0.5);
-}
-/* ── 表格深色主题（覆盖 Element Plus 默认） ───────────────── */
-:deep(.el-table),
-:deep(.el-table__inner-wrapper),
-:deep(.el-table__body-wrapper),
-:deep(.el-table__header-wrapper),
-:deep(.el-table tr),
-:deep(.el-table th.el-table__cell),
-:deep(.el-table td.el-table__cell) {
-  background-color: #25282f !important;
-  color: #e8e8e8;
-}
-:deep(.el-table) {
-  --el-table-bg-color: #25282f;
-  --el-table-tr-bg-color: #25282f;
-  --el-table-header-bg-color: #2a2d36;
-  --el-table-row-hover-bg-color: #2f323a;
-  --el-table-border-color: #3a3e4a;
-  --el-table-header-text-color: #b8b8b8;
-  --el-table-text-color: #e8e8e8;
-  --el-table-fixed-box-shadow: none;
-  border: 1px solid #3a3e4a;
-  border-radius: 6px;
-}
-:deep(.el-table th.el-table__cell) {
-  background-color: #2a2d36 !important;
-  color: #b8b8b8 !important;
-  font-weight: 600;
-  border-bottom: 1px solid #3a3e4a;
-}
-:deep(.el-table tr:hover > td.el-table__cell) {
-  background-color: #2f323a !important;
-}
-:deep(.el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell) {
-  background-color: #2f323a !important;
-}
-:deep(.el-table__empty-block),
-:deep(.el-table__empty-text) {
-  background-color: #25282f !important;
-  color: #6c7080;
+  background-color: color-mix(in srgb, var(--accent) 50%, transparent);
 }
 
-/* ── 统计仪表盘 ───────────────────────────────────────── */
-.stats-bar {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.stat-card {
-  flex: 1;
-  min-width: 100px;
-  padding: 12px 16px;
-  background: #25282f;
-  border: 1px solid #3a3e4a;
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  transition: border-color 0.15s;
-}
-.stat-card:hover {
-  border-color: #4a4e5a;
-}
-.stat-num {
-  font-size: 22px;
-  font-weight: 700;
-  color: #ffffff;
-  line-height: 1;
-}
-.stat-label {
-  font-size: 12px;
-  color: #8c8c8c;
-}
-.stat-ip .stat-num { color: #1890ff; }
-.stat-domain .stat-num { color: #722ed1; }
-.stat-alive .stat-num { color: #52c41a; }
-.stat-dead .stat-num { color: #ff4d4f; }
-.stat-unprobed .stat-num { color: #8c8c8c; }
-.stat-ports .stat-num { color: #faad14; }
-
-/* ── 分页条 ───────────────────────────────────────── */
+/* ── 分页条 ────────────────────────────────── */
 .pagination-bar {
   display: flex;
   justify-content: center;
-  padding: 8px 0 4px;
+  padding: 6px 0 2px;
   flex-shrink: 0;
 }
 :deep(.el-pagination) {
-  --el-pagination-bg-color: #25282f;
-  --el-pagination-text-color: #b8b8b8;
-  --el-pagination-button-color: #b8b8b8;
-  --el-pagination-button-bg-color: #2a2d36;
-  --el-pagination-button-disabled-color: #555;
-  --el-pagination-button-disabled-bg-color: #25282f;
-  --el-pagination-hover-color: #1890ff;
+  --el-pagination-bg-color: var(--bg-card);
+  --el-pagination-text-color: var(--text-regular);
+  --el-pagination-button-color: var(--text-regular);
+  --el-pagination-button-bg-color: var(--bg-surface);
+  --el-pagination-button-disabled-color: var(--text-dimmed);
+  --el-pagination-button-disabled-bg-color: var(--bg-card);
+  --el-pagination-hover-color: var(--accent);
 }
 :deep(.el-pagination.is-background .el-pager li) {
-  background-color: #2a2d36;
-  color: #b8b8b8;
-  border: 1px solid #3a3e4a;
+  background-color: var(--bg-surface);
+  color: var(--text-regular);
+  border: 1px solid var(--border);
 }
 :deep(.el-pagination.is-background .el-pager li:hover) {
-  color: #1890ff;
+  color: var(--accent);
 }
 :deep(.el-pagination.is-background .el-pager li.is-active) {
-  background-color: #1890ff;
+  background-color: var(--accent);
   color: #fff;
-  border-color: #1890ff;
+  border-color: var(--accent);
 }
 :deep(.el-pagination.is-background .btn-prev),
 :deep(.el-pagination.is-background .btn-next) {
-  background-color: #2a2d36;
-  color: #b8b8b8;
-  border: 1px solid #3a3e4a;
+  background-color: var(--bg-surface);
+  color: var(--text-regular);
+  border: 1px solid var(--border);
 }
 :deep(.el-pagination .el-select .el-input .el-input__wrapper) {
-  background-color: #2a2d36;
-  border-color: #3a3e4a;
+  background-color: var(--bg-surface);
+  border-color: var(--border);
   box-shadow: none;
-  color: #b8b8b8;
+  color: var(--text-regular);
 }
 :deep(.el-pagination .el-pagination__editor .el-input__wrapper) {
-  background-color: #2a2d36;
-  border-color: #3a3e4a;
+  background-color: var(--bg-surface);
+  border-color: var(--border);
   box-shadow: none;
-  color: #b8b8b8;
+  color: var(--text-regular);
 }
 </style>

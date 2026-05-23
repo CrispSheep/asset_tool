@@ -13,20 +13,21 @@ type Project struct {
 
 // Asset 资产
 type Asset struct {
-	ID         int64    `json:"id"`
-	ProjectID  int64    `json:"project_id"`
-	Type       string   `json:"type"`        // "ip" | "domain"
-	Host       string   `json:"host"`
-	Port       string   `json:"port"`
-	Sources    []string `json:"sources"`
-	Tags       []string `json:"tags"`        // 用户自定义标签
-	Status     string   `json:"status"`      // "alive" | "dead" | ""
-	StatusCode *int     `json:"status_code"`
-	Title      string   `json:"title"`
-	Server     string   `json:"server"`
-	Tech       string   `json:"tech"`        // JSON 字符串
-	ProbedAt   string   `json:"probed_at"`
-	CreatedAt  string   `json:"created_at"`
+	ID          int64    `json:"id"`
+	ProjectID   int64    `json:"project_id"`
+	Type        string   `json:"type"`        // "ip" | "domain"
+	Host        string   `json:"host"`
+	Port        string   `json:"port"`
+	Sources     []string `json:"sources"`
+	Tags        []string `json:"tags"`        // 用户自定义标签
+	ResolvedIPs []string `json:"resolved_ips"` // 域名 DNS 解析出的 IP 列表
+	Status      string   `json:"status"`      // "alive" | "dead" | ""
+	StatusCode  *int     `json:"status_code"`
+	Title       string   `json:"title"`
+	Server      string   `json:"server"`
+	Tech        string   `json:"tech"`        // JSON 字符串
+	ProbedAt    string   `json:"probed_at"`
+	CreatedAt   string   `json:"created_at"`
 }
 
 // AssetEntry 准备入库的资产条目

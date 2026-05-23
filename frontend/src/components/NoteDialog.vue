@@ -102,7 +102,7 @@ function close() {
 <style scoped>
 .hint {
   height: 18px;
-  color: #52c41a;
+  color: var(--success);
   font-size: 12px;
   text-align: right;
   padding-right: 4px;
@@ -132,12 +132,12 @@ function close() {
 .note-dialog .note-editor .el-textarea__inner {
   flex: 1;
   height: 100% !important;
-  background: #1a1c22;
-  color: #d4d4d4;
+  background: var(--bg-log);
+  color: var(--text-regular);
   font-family: Consolas, 'Microsoft YaHei UI', monospace;
   font-size: 13px;
   line-height: 1.6;
-  border: 1px solid #3a3e4a;
+  border: 1px solid var(--border);
   border-radius: 6px;
   resize: none;
 }

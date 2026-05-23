@@ -76,7 +76,7 @@ async function submitManual() {
             </el-select>
           </el-form-item>
         </el-form>
-        <p style="color: #aaa; font-size: 13px; margin: 8px 0">
+        <p style="color: var(--text-muted); font-size: 13px; margin: 8px 0">
           点击下方按钮选择 CSV 文件，自动识别 IP / 域名 / URL，去重并合并已存在资产的来源标签
         </p>
       </el-tab-pane>

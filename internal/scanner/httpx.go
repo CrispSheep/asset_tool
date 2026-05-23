@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strconv"
@@ -34,37 +35,62 @@ type HttpxConfig struct {
 	OnlyIP             bool   `json:"only_ip"`          // 只探活 IP 资产
 	OnlyDomain         bool   `json:"only_domain"`      // 只探活域名资产
 	SkipDnsFailed      bool   `json:"skip_dns_failed"`  // 跳过 DNS 解析失败的域名
+	DomainNetwork      string `json:"domain_network"`   // 域名网络过滤: "" | "extranet" | "intranet"
 }
 
 // RunHttpx 执行探活，进度通过 EventsEmit 推送
 func RunHttpx(appCtx context.Context, jobID string, projectID int64, cfg HttpxConfig) error {
 	var hosts []string
-	var err error
-	typeFilter := ""
-	if cfg.OnlyDomain {
-		typeFilter = "domain"
-	} else if cfg.OnlyIP {
-		typeFilter = "ip"
-	}
-	if cfg.OnlyUnprobed {
-		// 只取 status 为空的资产
-		assets, e := db.ListAssets(projectID, typeFilter, "", cfg.SkipDnsFailed)
+
+	if cfg.OnlyDomain && cfg.DomainNetwork != "" {
+		// 按域名解析 IP 的网络类型过滤
+		domainHosts, e := db.GetDomainHostsByNetwork(projectID, cfg.DomainNetwork)
 		if e != nil {
-			return fmt.Errorf("list assets: %w", e)
+			return fmt.Errorf("get domain hosts by network: %w", e)
 		}
-		for _, a := range assets {
-			if a.Status == "" {
-				if a.Port != "" {
-					hosts = append(hosts, a.Host+":"+a.Port)
-				} else {
-					hosts = append(hosts, a.Host)
+		if cfg.OnlyUnprobed {
+			// 进一步过滤：只保留未探活的
+			unprobedSet := map[string]struct{}{}
+			unprobedAssets, _ := db.ListAssets(projectID, "domain", "unprobed")
+			for _, a := range unprobedAssets {
+				unprobedSet[a.Host] = struct{}{}
+			}
+			for _, h := range domainHosts {
+				if _, ok := unprobedSet[h]; ok {
+					hosts = append(hosts, h)
 				}
 			}
+		} else {
+			hosts = domainHosts
 		}
 	} else {
-		hosts, err = db.GetAllHosts(projectID, typeFilter, cfg.SkipDnsFailed)
-		if err != nil {
-			return fmt.Errorf("get hosts: %w", err)
+		var err error
+		typeFilter := ""
+		if cfg.OnlyDomain {
+			typeFilter = "domain"
+		} else if cfg.OnlyIP {
+			typeFilter = "ip"
+		}
+		if cfg.OnlyUnprobed {
+			// 只取 status 为空的资产
+			assets, e := db.ListAssets(projectID, typeFilter, "", cfg.SkipDnsFailed)
+			if e != nil {
+				return fmt.Errorf("list assets: %w", e)
+			}
+			for _, a := range assets {
+				if a.Status == "" {
+					if a.Port != "" {
+						hosts = append(hosts, a.Host+":"+a.Port)
+					} else {
+						hosts = append(hosts, a.Host)
+					}
+				}
+			}
+		} else {
+			hosts, err = db.GetAllHosts(projectID, typeFilter, cfg.SkipDnsFailed)
+			if err != nil {
+				return fmt.Errorf("get hosts: %w", err)
+			}
 		}
 	}
 	if len(hosts) == 0 {
@@ -187,7 +213,9 @@ func RunHttpx(appCtx context.Context, jobID string, projectID int64, cfg HttpxCo
 			"alive":       alive,
 		})
 	}
-	cmd.Wait()
+	if err := cmd.Wait(); err != nil && ctx.Err() == nil {
+		wruntime.EventsEmit(appCtx, "httpx:error", fmt.Sprintf("httpx exited: %v", err))
+	}
 
 	cancelled := ctx.Err() != nil
 
@@ -259,13 +287,9 @@ func firstNonEmpty(ss ...string) string {
 // splitHostPort 把 host:port 拆分为 host 和 port（用于数据库匹配）
 // 如果没有端口，返回原始字符串和空端口
 func splitHostPort(s string) (string, string) {
-	idx := strings.LastIndex(s, ":")
-	if idx == -1 {
+	host, port, err := net.SplitHostPort(s)
+	if err != nil {
 		return s, ""
 	}
-	port := s[idx+1:]
-	if _, err := strconv.Atoi(port); err != nil {
-		return s, ""
-	}
-	return s[:idx], port
+	return host, port
 }

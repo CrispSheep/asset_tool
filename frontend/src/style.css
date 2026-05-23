@@ -1,11 +1,84 @@
+/* ── Light Theme (default) ─────────────────────────────── */
+:root {
+  --bg-page:    #f5f7fa;
+  --bg-card:    #ffffff;
+  --bg-surface: #ffffff;
+  --bg-input:   #f5f7fa;
+  --bg-elevated:#ffffff;
+  --bg-log:     #f5f7fa;
+  --border:     #e4e7ed;
+  --border-light:#ebeef5;
+  --text-primary:#303133;
+  --text-regular:#606266;
+  --text-muted: #909399;
+  --text-dimmed:#c0c4cc;
+  --accent:     #409eff;
+  --accent-hover:#66b1ff;
+  --success:    #67c23a;
+  --danger:     #f56c6c;
+  --warning:    #e6a23c;
+  --info-purple:#909399;
+  --scrollbar-thumb:#c0c4cc;
+  --scrollbar-hover:#909399;
+}
+
+/* ── Dark Theme ───────────────────────────────────────── */
+:root.dark {
+  --bg-page:    #1f2128;
+  --bg-card:    #25282f;
+  --bg-surface: #2a2d36;
+  --bg-input:   #1a1c22;
+  --bg-elevated:#2a2d36;
+  --bg-log:     #1a1c22;
+  --border:     #3a3e4a;
+  --border-light:#2f323a;
+  --text-primary:#e8e8e8;
+  --text-regular:#b8b8b8;
+  --text-muted: #8c8c8c;
+  --text-dimmed:#6c7080;
+  --accent:     #1890ff;
+  --accent-hover:#40a9ff;
+  --success:    #52c41a;
+  --danger:     #ff4d4f;
+  --warning:    #faad14;
+  --info-purple:#722ed1;
+  --scrollbar-thumb:#3a3e4a;
+  --scrollbar-hover:#4a4e5a;
+}
+
+/* ── Element Plus dark mode overrides ─────────────────── */
+:root.dark {
+  --el-bg-color: #25282f;
+  --el-bg-color-overlay: #2a2d36;
+  --el-bg-color-page: #1f2128;
+  --el-text-color-primary: #e8e8e8;
+  --el-text-color-regular: #b8b8b8;
+  --el-text-color-secondary: #8c8c8c;
+  --el-text-color-placeholder: #6c7080;
+  --el-border-color: #3a3e4a;
+  --el-border-color-light: #2f323a;
+  --el-border-color-lighter: #2a2d36;
+  --el-fill-color: #2a2d36;
+  --el-fill-color-light: #25282f;
+  --el-fill-color-lighter: #1f2128;
+  --el-fill-color-blank: #25282f;
+  --el-mask-color: rgba(0, 0, 0, 0.6);
+  --el-dialog-bg-color: #2a2d36;
+  --el-table-header-bg-color: #2a2d36;
+  --el-table-tr-bg-color: #25282f;
+  --el-table-row-hover-bg-color: #2f323a;
+  --el-menu-bg-color: #25282f;
+  --el-menu-hover-bg-color: #2a2d36;
+}
+
 html,
 body,
 #app {
   margin: 0;
   padding: 0;
   height: 100%;
-  background: #1f2128;
-  color: #e8e8e8;
+  background: var(--bg-page);
+  color: var(--text-primary);
   font-family: 'Microsoft YaHei UI', 'PingFang SC', 'Segoe UI', sans-serif;
   overflow: hidden;
 }
@@ -15,11 +88,11 @@ body,
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #3a3e4a;
+  background: var(--scrollbar-thumb);
   border-radius: 5px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #4a4e5a;
+  background: var(--scrollbar-hover);
 }
 ::-webkit-scrollbar-track {
   background: transparent;

@@ -29,6 +29,7 @@ type RustscanConfig struct {
 	NoBanner       bool   `json:"no_banner"`       // 不输出 ascii 横幅（accessible 模式）
 	SkipDnsFailed  bool   `json:"skip_dns_failed"` // 跳过 DNS 解析失败的域名
 	UseIPPorts     bool   `json:"use_ip_ports"`    // 使用 IP 扫描已发现的端口
+	DomainNetwork  string `json:"domain_network"`  // 域名网络过滤: "" | "extranet" | "intranet"
 }
 
 var openPortRe = regexp.MustCompile(`Open\s+([\d.]+):(\d+)`)
@@ -36,29 +37,39 @@ var openPortRe = regexp.MustCompile(`Open\s+([\d.]+):(\d+)`)
 // RunRustscan 端口扫描
 func RunRustscan(appCtx context.Context, jobID string, projectID int64, cfg RustscanConfig) error {
 	// 收集要扫描的目标
-	typeFilter := ""
-	if cfg.OnlyDomain {
-		typeFilter = "domain"
-	} else if cfg.OnlyIP {
-		typeFilter = "ip"
-	}
-	statusFilter := ""
-	if cfg.OnlyAlive {
-		statusFilter = "alive"
-	}
-	assets, err := db.ListAssets(projectID, typeFilter, statusFilter, cfg.SkipDnsFailed)
-	if err != nil {
-		return fmt.Errorf("list assets: %w", err)
-	}
+	var hosts []string
 
-	// 去重 host（同一个 host 可能因端口已分多条）
-	hostSet := map[string]struct{}{}
-	for _, a := range assets {
-		hostSet[a.Host] = struct{}{}
-	}
-	hosts := make([]string, 0, len(hostSet))
-	for h := range hostSet {
-		hosts = append(hosts, h)
+	if cfg.OnlyDomain && cfg.DomainNetwork != "" {
+		var err error
+		hosts, err = db.GetDomainHostsByNetwork(projectID, cfg.DomainNetwork)
+		if err != nil {
+			return fmt.Errorf("get domain hosts by network: %w", err)
+		}
+	} else {
+		typeFilter := ""
+		if cfg.OnlyDomain {
+			typeFilter = "domain"
+		} else if cfg.OnlyIP {
+			typeFilter = "ip"
+		}
+		statusFilter := ""
+		if cfg.OnlyAlive {
+			statusFilter = "alive"
+		}
+		assets, err := db.ListAssets(projectID, typeFilter, statusFilter, cfg.SkipDnsFailed)
+		if err != nil {
+			return fmt.Errorf("list assets: %w", err)
+		}
+
+		// 去重 host（同一个 host 可能因端口已分多条）
+		hostSet := map[string]struct{}{}
+		for _, a := range assets {
+			hostSet[a.Host] = struct{}{}
+		}
+		hosts = make([]string, 0, len(hostSet))
+		for h := range hostSet {
+			hosts = append(hosts, h)
+		}
 	}
 	sort.Strings(hosts)
 
@@ -220,7 +231,9 @@ func scanOneHost(ctx context.Context, host string, cfg RustscanConfig, logFn fun
 			}
 		}
 	}
-	cmd.Wait()
+	if err := cmd.Wait(); err != nil {
+		logFn(fmt.Sprintf("[!] rustscan exited: %v", err))
+	}
 
 	// 去重 + 排序
 	uniq := map[int]struct{}{}
