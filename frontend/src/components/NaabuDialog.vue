@@ -2,15 +2,19 @@
 import { ref, watch, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { InfoFilled } from '@element-plus/icons-vue'
-import {
-  RunNaabu, PauseJob, ResumeJob, CancelJob,
-  GetSetting, SetSetting,
-} from '../../wailsjs/go/main/App'
+import { RunNaabu, GetSetting, SetSetting } from '../../wailsjs/go/main/App'
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime'
+import { useScannerDialog } from '../composables/useScannerDialog'
 
 const props = defineProps<{ projectId: number }>()
 const emit = defineEmits<{ scanned: [] }>()
 const visible = defineModel<boolean>('visible', { default: false })
+
+const {
+  running, paused, log, logEl, jobId, elapsed,
+  appendLog, startTimer, stopTimer, resetLog,
+  togglePause, stop, close, hide,
+} = useScannerDialog(visible)
 
 const path = ref('')
 const ports = ref('80,443,8080,8443,3306,3389,6379,22,21,3000,5000,8000,8888,9000')
@@ -31,35 +35,9 @@ const domainNetwork = ref('')
 watch(onlyIP, v => { if (v) onlyDomain.value = false })
 watch(onlyDomain, v => { if (v) onlyIP.value = false })
 
-const running = ref(false)
-const paused = ref(false)
 const totalHosts = ref(0)
 const portsFound = ref(0)
 const newCount = ref(0)
-const log = ref<string[]>([])
-const logEl = ref<HTMLElement | null>(null)
-const jobId = ref('')
-
-const startedAt = ref(0)
-const elapsed = ref('00:00')
-let timerHandle: number | null = null
-
-function pad(n: number) { return n.toString().padStart(2, '0') }
-function fmt(ms: number) {
-  const s = Math.floor(ms / 1000)
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const sec = s % 60
-  return h > 0 ? `${pad(h)}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`
-}
-
-function appendLog(line: string) {
-  log.value.push(line)
-  if (log.value.length > 1000) log.value.splice(0, log.value.length - 1000)
-  setTimeout(() => {
-    if (logEl.value) logEl.value.scrollTop = logEl.value.scrollHeight
-  }, 10)
-}
 
 async function loadSettings() {
   path.value = await GetSetting('naabu_path')
@@ -80,7 +58,7 @@ EventsOn('naabu:port', (data: any) => {
 EventsOn('naabu:done', (data: any) => {
   running.value = false
   paused.value = false
-  if (timerHandle) { clearInterval(timerHandle); timerHandle = null }
+  stopTimer()
   newCount.value = data.new
   appendLog(
     `\n完成：${data.hosts} 个 host 共发现 ${data.ports} 个开放端口，写入 ${data.new} 条新资产，用时 ${elapsed.value}`
@@ -89,7 +67,7 @@ EventsOn('naabu:done', (data: any) => {
 })
 EventsOn('naabu:error', (msg: string) => {
   running.value = false
-  if (timerHandle) { clearInterval(timerHandle); timerHandle = null }
+  stopTimer()
   ElMessage.error(msg)
   appendLog(`[!] ${msg}`)
 })
@@ -100,7 +78,6 @@ onBeforeUnmount(() => {
   EventsOff('naabu:port')
   EventsOff('naabu:done')
   EventsOff('naabu:error')
-  if (timerHandle) clearInterval(timerHandle)
 })
 
 async function start() {
@@ -111,18 +88,13 @@ async function start() {
   await SetSetting('naabu_path', path.value.trim())
   await SetSetting('naabu_ports', ports.value.trim())
 
-  log.value = []
+  resetLog()
   totalHosts.value = 0
   portsFound.value = 0
   newCount.value = 0
   paused.value = false
   running.value = true
-  startedAt.value = Date.now()
-  elapsed.value = '00:00'
-  if (timerHandle) clearInterval(timerHandle)
-  timerHandle = window.setInterval(() => {
-    elapsed.value = fmt(Date.now() - startedAt.value)
-  }, 1000)
+  startTimer()
 
   try {
     jobId.value = await RunNaabu(props.projectId, {
@@ -144,38 +116,9 @@ async function start() {
     })
   } catch (e: any) {
     running.value = false
-    if (timerHandle) { clearInterval(timerHandle); timerHandle = null }
+    stopTimer()
     ElMessage.error('启动失败: ' + e)
   }
-}
-
-function togglePause() {
-  if (!running.value) return
-  if (paused.value) {
-    ResumeJob(jobId.value)
-    paused.value = false
-    appendLog('[i] 已继续')
-  } else {
-    PauseJob(jobId.value)
-    paused.value = true
-    appendLog('[i] 已暂停（处理完当前一行后停止读取）')
-  }
-}
-
-function stop() {
-  if (jobId.value) CancelJob(jobId.value)
-}
-
-function close() {
-  if (running.value) {
-    ElMessage.warning('扫描进行中，可点「📥 收起」让它后台运行，或先停止')
-    return
-  }
-  visible.value = false
-}
-
-function hide() {
-  visible.value = false
 }
 </script>
 

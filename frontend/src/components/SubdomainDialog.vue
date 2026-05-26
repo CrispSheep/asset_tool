@@ -1,16 +1,20 @@
 <script setup lang="ts">
 import { ref, computed, onBeforeUnmount, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { InfoFilled, Search, Close, Plus, Right } from '@element-plus/icons-vue'
-import {
-  RunSubdomain, PauseJob, ResumeJob, CancelJob,
-  GetSetting, SetSetting,
-} from '../../wailsjs/go/main/App'
+import { Search, Plus, Right } from '@element-plus/icons-vue'
+import { RunSubdomain, GetSetting, SetSetting } from '../../wailsjs/go/main/App'
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime'
+import { useScannerDialog } from '../composables/useScannerDialog'
 
 const props = defineProps<{ projectId: number }>()
 const emit = defineEmits<{ discovered: [] }>()
 const visible = defineModel<boolean>('visible', { default: false })
+
+const {
+  running, paused, log, logEl, jobId, elapsed,
+  appendLog, startTimer, stopTimer, resetLog,
+  togglePause, stop, close,
+} = useScannerDialog(visible)
 
 // ── 工具配置 ──────────────────────────────────────────────
 const tool = ref<'subfinder' | 'ksubdomain' | 'oneforall'>('subfinder')
@@ -35,40 +39,14 @@ const filteredResults = computed(() => {
   return results.value.filter(d => d.toLowerCase().includes(kw))
 })
 
-// ── 运行状态 ──────────────────────────────────────────────
-const running = ref(false)
-const paused = ref(false)
 const total = ref(0)
 const processed = ref(0)
 const newCount = ref(0)
-const log = ref<string[]>([])
-const logEl = ref<HTMLElement | null>(null)
-const jobId = ref('')
-
-const startedAt = ref(0)
-const elapsed = ref('00:00')
-let timerHandle: number | null = null
-
-function pad(n: number) { return n.toString().padStart(2, '0') }
-function fmt(ms: number) {
-  const s = Math.floor(ms / 1000)
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const sec = s % 60
-  return h > 0 ? `${pad(h)}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`
-}
-
-function appendLog(line: string) {
-  log.value.push(line)
-  if (log.value.length > 1000) log.value.splice(0, log.value.length - 1000)
-  setTimeout(() => { if (logEl.value) logEl.value.scrollTop = logEl.value.scrollHeight }, 10)
-}
 
 // ── 队列操作 ──────────────────────────────────────────────
 function addToQueue() {
   const text = domainInput.value.trim()
   if (!text) return
-  // 支持多行粘贴
   const lines = text.split(/[\n,;]+/).map(l => l.trim()).filter(Boolean)
   for (const d of lines) {
     if (!queue.value.includes(d)) queue.value.push(d)
@@ -115,13 +93,13 @@ EventsOn('subdomain:progress', (data: any) => {
 EventsOn('subdomain:done', (data: any) => {
   running.value = false
   paused.value = false
-  if (timerHandle) { clearInterval(timerHandle); timerHandle = null }
+  stopTimer()
   appendLog(`\n完成：新增 ${data.new} 条子域名，本次共发现 ${results.value.length} 条，用时 ${elapsed.value}`)
   emit('discovered')
 })
 EventsOn('subdomain:error', (msg: string) => {
   running.value = false
-  if (timerHandle) { clearInterval(timerHandle); timerHandle = null }
+  stopTimer()
   ElMessage.error(msg)
   appendLog(`[!] ${msg}`)
 })
@@ -131,7 +109,6 @@ onBeforeUnmount(() => {
                     'subdomain:progress', 'subdomain:done', 'subdomain:error']) {
     EventsOff(e)
   }
-  if (timerHandle) clearInterval(timerHandle)
 })
 
 // ── 控制 ─────────────────────────────────────────────────
@@ -150,18 +127,14 @@ async function start() {
     await SetSetting('oneforall_python_path', pythonPath.value.trim())
   }
 
-  log.value = []
+  resetLog()
   processed.value = 0
   total.value = 0
   newCount.value = 0
   paused.value = false
   running.value = true
-  startedAt.value = Date.now()
-  elapsed.value = '00:00'
-  if (timerHandle) clearInterval(timerHandle)
-  timerHandle = window.setInterval(() => { elapsed.value = fmt(Date.now() - startedAt.value) }, 1000)
+  startTimer()
 
-  // 把队列里的域名发给后端，然后清空队列
   const domains = [...queue.value]
   queue.value = []
 
@@ -177,22 +150,9 @@ async function start() {
     })
   } catch (e: any) {
     running.value = false
-    if (timerHandle) { clearInterval(timerHandle); timerHandle = null }
+    stopTimer()
     ElMessage.error('启动失败: ' + e)
   }
-}
-
-function togglePause() {
-  if (!running.value) return
-  if (paused.value) { ResumeJob(jobId.value); paused.value = false; appendLog('[i] 已继续') }
-  else { PauseJob(jobId.value); paused.value = true; appendLog('[i] 已暂停') }
-}
-
-function stop() { if (jobId.value) CancelJob(jobId.value) }
-
-function close() {
-  if (running.value) { ElMessage.warning('扫描进行中，可点「📥 收起」后台运行'); return }
-  visible.value = false
 }
 </script>
 

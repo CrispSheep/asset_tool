@@ -129,12 +129,12 @@ func runKsubdomain(ctx context.Context, cfg SubdomainConfig, domain string, logF
 	}
 
 	lines := readLines(outPath)
-	return parseKsubdomainLines(lines), nil
+	return parseKsubdomainLines(lines, maxSubdomainResults), nil
 }
 
 // parseKsubdomainLines 解析 ksubdomain 输出行
 // 格式可能是 "sub.example.com" 或 "sub.example.com => 1.2.3.4"
-func parseKsubdomainLines(lines []string) []string {
+func parseKsubdomainLines(lines []string, limit int) []string {
 	var out []string
 	for _, l := range lines {
 		if idx := strings.Index(l, "=>"); idx != -1 {
@@ -142,6 +142,9 @@ func parseKsubdomainLines(lines []string) []string {
 		}
 		if l != "" {
 			out = append(out, l)
+			if limit > 0 && len(out) >= limit {
+				break
+			}
 		}
 	}
 	return out
@@ -208,6 +211,9 @@ func runOneforall(ctx context.Context, cfg SubdomainConfig, domain string, logFn
 			s := strings.TrimSpace(row[idx])
 			if s != "" {
 				subs = append(subs, s)
+				if len(subs) >= maxSubdomainResults {
+					break
+				}
 			}
 		}
 	}
@@ -243,10 +249,22 @@ func runSubfinder(ctx context.Context, cfg SubdomainConfig, domain string, logFn
 	if err != nil {
 		return nil, fmt.Errorf("stdout pipe: %w", err)
 	}
-	cmd.Stderr = nil
+	stderr, _ := cmd.StderrPipe()
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("启动失败: %w", err)
 	}
+
+	// 读取 stderr（后台）
+	go func() {
+		sc := bufio.NewScanner(stderr)
+		sc.Buffer(make([]byte, 1024*1024), 4*1024*1024)
+		for sc.Scan() {
+			line := strings.TrimSpace(sc.Text())
+			if line != "" {
+				logFn("    [stderr] " + line)
+			}
+		}
+	}()
 
 	// subfinder -silent 每行一个子域名
 	var subs []string

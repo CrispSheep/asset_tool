@@ -115,10 +115,11 @@ func (a *App) ManualAddAssets(projectID int64, lines []string, source string) (m
 	seen := map[string]struct{}{}
 	for _, line := range lines {
 		for _, item := range parser.ExtractFromValue(line) {
-			if _, ok := seen[item.Host]; ok {
+			key := item.Host + "|" + item.Port
+			if _, ok := seen[key]; ok {
 				continue
 			}
-			seen[item.Host] = struct{}{}
+			seen[key] = struct{}{}
 			item.Source = source
 			entries = append(entries, item)
 		}

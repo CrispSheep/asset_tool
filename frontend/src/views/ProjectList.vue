@@ -176,21 +176,22 @@ onMounted(refresh)
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 .card {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 14px 16px;
+  padding: 14px 18px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 8px;
+  box-shadow: var(--shadow-sm);
   cursor: pointer;
-  transition: border-color 0.15s, transform 0.15s;
+  transition: box-shadow 0.2s, transform 0.15s;
 }
 .card:hover {
-  border-color: var(--accent);
+  box-shadow: var(--shadow-md);
   transform: translateX(2px);
 }
 .folder-icon {

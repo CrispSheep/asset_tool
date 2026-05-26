@@ -2,15 +2,19 @@
 import { ref, watch, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { InfoFilled } from '@element-plus/icons-vue'
-import {
-  RunHttpx, PauseJob, ResumeJob, CancelJob,
-  GetSetting, SetSetting,
-} from '../../wailsjs/go/main/App'
+import { RunHttpx, GetSetting, SetSetting } from '../../wailsjs/go/main/App'
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime'
+import { useScannerDialog } from '../composables/useScannerDialog'
 
 const props = defineProps<{ projectId: number }>()
 const emit = defineEmits<{ probed: [] }>()
 const visible = defineModel<boolean>('visible', { default: false })
+
+const {
+  running, paused, log, logEl, jobId, elapsed,
+  appendLog, startTimer, stopTimer, resetLog,
+  togglePause, stop, close, hide,
+} = useScannerDialog(visible)
 
 const httpxPath = ref('')
 const threads = ref(50)
@@ -35,35 +39,9 @@ const domainNetwork = ref('')
 watch(onlyIP, v => { if (v) onlyDomain.value = false })
 watch(onlyDomain, v => { if (v) onlyIP.value = false })
 
-const running = ref(false)
-const paused = ref(false)
 const total = ref(0)
 const processed = ref(0)
 const alive = ref(0)
-const log = ref<string[]>([])
-const logEl = ref<HTMLElement | null>(null)
-const jobId = ref('')
-
-const startedAt = ref(0)
-const elapsed = ref('00:00')
-let timerHandle: number | null = null
-
-function pad(n: number) { return n.toString().padStart(2, '0') }
-function fmt(ms: number) {
-  const s = Math.floor(ms / 1000)
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const sec = s % 60
-  return h > 0 ? `${pad(h)}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`
-}
-
-function appendLog(line: string) {
-  log.value.push(line)
-  if (log.value.length > 500) log.value.splice(0, log.value.length - 500)
-  setTimeout(() => {
-    if (logEl.value) logEl.value.scrollTop = logEl.value.scrollHeight
-  }, 10)
-}
 
 async function loadSettings() {
   httpxPath.value = await GetSetting('httpx_path')
@@ -83,13 +61,13 @@ EventsOn('httpx:progress', (data: any) => {
 EventsOn('httpx:done', (data: any) => {
   running.value = false
   paused.value = false
-  if (timerHandle) { clearInterval(timerHandle); timerHandle = null }
+  stopTimer()
   appendLog(`\n完成：${data.total} 个目标，存活 ${data.alive} 个，用时 ${elapsed.value}`)
   emit('probed')
 })
 EventsOn('httpx:error', (msg: string) => {
   running.value = false
-  if (timerHandle) { clearInterval(timerHandle); timerHandle = null }
+  stopTimer()
   ElMessage.error(msg)
   appendLog(`[!] ${msg}`)
 })
@@ -99,7 +77,6 @@ onBeforeUnmount(() => {
   EventsOff('httpx:progress')
   EventsOff('httpx:done')
   EventsOff('httpx:error')
-  if (timerHandle) clearInterval(timerHandle)
 })
 
 async function start() {
@@ -109,18 +86,13 @@ async function start() {
   }
   await SetSetting('httpx_path', httpxPath.value.trim())
 
-  log.value = []
+  resetLog()
   processed.value = 0
   alive.value = 0
   total.value = 0
   paused.value = false
   running.value = true
-  startedAt.value = Date.now()
-  elapsed.value = '00:00'
-  if (timerHandle) clearInterval(timerHandle)
-  timerHandle = window.setInterval(() => {
-    elapsed.value = fmt(Date.now() - startedAt.value)
-  }, 1000)
+  startTimer()
 
   try {
     jobId.value = await RunHttpx(props.projectId, {
@@ -146,37 +118,9 @@ async function start() {
     })
   } catch (e: any) {
     running.value = false
-    if (timerHandle) { clearInterval(timerHandle); timerHandle = null }
+    stopTimer()
     ElMessage.error('启动失败: ' + e)
   }
-}
-
-function togglePause() {
-  if (paused.value) {
-    ResumeJob(jobId.value)
-    paused.value = false
-    appendLog('[i] 已继续')
-  } else {
-    PauseJob(jobId.value)
-    paused.value = true
-    appendLog('[i] 已暂停')
-  }
-}
-
-function stop() {
-  if (jobId.value) CancelJob(jobId.value)
-}
-
-function close() {
-  if (running.value) {
-    ElMessage.warning('扫描进行中，可点「收起」后台运行，或先停止')
-    return
-  }
-  visible.value = false
-}
-
-function hide() {
-  visible.value = false
 }
 
 function pickPath() {

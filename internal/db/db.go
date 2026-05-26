@@ -12,7 +12,7 @@ var conn *sql.DB
 // Init 初始化数据库连接，建表
 func Init(path string) error {
 	var err error
-	conn, err = sql.Open("sqlite", path+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)")
+	conn, err = sql.Open("sqlite", path+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_busy_timeout=5000")
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}

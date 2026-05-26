@@ -45,6 +45,9 @@ func RunNaabu(appCtx context.Context, jobID string, projectID int64, cfg NaabuCo
 		if err != nil {
 			return fmt.Errorf("get domain hosts by network: %w", err)
 		}
+		if len(hosts) == 0 {
+			wruntime.EventsEmit(appCtx, "naabu:log", "[!] 没有符合条件的域名，请先运行 DNS 解析")
+		}
 	} else {
 		typeFilter := ""
 		if cfg.OnlyDomain {
@@ -83,7 +86,10 @@ func RunNaabu(appCtx context.Context, jobID string, projectID int64, cfg NaabuCo
 	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
-	tmp.WriteString(strings.Join(hosts, "\n"))
+	if _, err := tmp.WriteString(strings.Join(hosts, "\n")); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write temp file: %w", err)
+	}
 	tmp.Close()
 
 	args := []string{
@@ -138,11 +144,23 @@ func RunNaabu(appCtx context.Context, jobID string, projectID int64, cfg NaabuCo
 	if err != nil {
 		return fmt.Errorf("stdout pipe: %w", err)
 	}
-	cmd.Stderr = nil
+	stderr, _ := cmd.StderrPipe()
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start naabu: %w (path=%s)", err, cfg.NaabuPath)
 	}
+
+	// 读取 stderr（后台）
+	go func() {
+		sc := bufio.NewScanner(stderr)
+		sc.Buffer(make([]byte, 1024*1024), 4*1024*1024)
+		for sc.Scan() {
+			line := strings.TrimSpace(sc.Text())
+			if line != "" {
+				wruntime.EventsEmit(appCtx, "naabu:log", "    [stderr] "+line)
+			}
+		}
+	}()
 
 	// 流式读 JSON
 	hostPorts := map[string][]int{}
@@ -216,7 +234,10 @@ func RunNaabu(appCtx context.Context, jobID string, projectID int64, cfg NaabuCo
 				continue
 			}
 
-			added, _ := db.AddPortAssets(projectID, host, ps, "naabu")
+			added, dbErr := db.AddPortAssets(projectID, host, ps, "naabu")
+			if dbErr != nil {
+				wruntime.EventsEmit(appCtx, "naabu:log", fmt.Sprintf("[!] %s 写入端口资产失败: %v", host, dbErr))
+			}
 			totalNew += added
 			wruntime.EventsEmit(appCtx, "naabu:log",
 				fmt.Sprintf("[+] %s 开放 %d 个端口 (新增 %d): %s",

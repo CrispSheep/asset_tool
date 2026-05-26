@@ -3,7 +3,7 @@ import { ref, computed, onMounted, watch, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, ElTag, ElCheckbox } from 'element-plus'
 import {
-  ArrowLeft, ArrowDown, Upload, Search, Delete, DocumentCopy, Download, Aim, Connection, Share, Document,
+  ArrowLeft, Upload, Search, Delete, DocumentCopy, Download, Aim, Connection, Share, Document,
   Monitor, Moon, Sunny,
 } from '@element-plus/icons-vue'
 import {
@@ -237,12 +237,7 @@ async function fetchAllAssets(): Promise<model.Asset[]> {
   const typeFilter = tab.value
   const statusFilter = getStatusFilter()
   const all = await ListAssets(projectId, typeFilter, statusFilter)
-  let items = all || []
-  if (filterMode.value === 'non-http') {
-    const httpPorts = new Set(['', '80', '443', '8080', '8443', '8000', '8888'])
-    items = items.filter(a => !httpPorts.has(a.port || ''))
-  }
-  return items
+  return all || []
 }
 
 async function exportTXT() {
@@ -517,10 +512,10 @@ onMounted(async () => {
 
 <template>
   <div class="page">
-    <!-- 顶部：返回 + 项目名 + 搜索 -->
+    <!-- 顶部：返回 + 项目名 + 搜索 + 操作 -->
     <div class="header">
       <el-button :icon="ArrowLeft" link @click="router.back()" class="back-btn" />
-      <h2>{{ projectName }}</h2>
+      <span class="project-title">{{ projectName }}</span>
       <span class="muted">#{{ projectId }}</span>
       <div class="spacer" />
       <el-input
@@ -532,59 +527,45 @@ onMounted(async () => {
         @input="onSearchInput"
         @clear="() => { page = 1; fetchPage() }"
       />
+      <el-button :icon="Document" size="small" @click="noteVisible = true">笔记</el-button>
       <el-tooltip :content="theme === 'system' ? '跟随系统' : theme === 'dark' ? '暗色模式' : '亮色模式'" placement="bottom">
         <el-button :icon="theme === 'system' ? Monitor : theme === 'dark' ? Moon : Sunny" circle size="small" @click="cycleTheme" />
       </el-tooltip>
     </div>
 
-    <!-- 工具栏：分组下拉 + 笔记 -->
-    <div class="toolbar">
-      <el-dropdown trigger="click" @command="(c: string) => { if (c === 'import') importVisible = true; else if (c === 'subdomain') subdomainVisible = true }">
-        <el-button :icon="Upload" type="primary" plain>
-          资产采集 <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-        </el-button>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item :icon="Upload" command="import">导入资产</el-dropdown-item>
-            <el-dropdown-item :icon="Share" command="subdomain">子域名探测</el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
-
-      <el-dropdown trigger="click" @command="(c: string) => {
-        if (c === 'dns') dnsVisible = true;
-        else if (c === 'httpx') httpxVisible = true;
-        else if (c === 'rustscan') rustscanVisible = true;
-        else if (c === 'naabu') naabuVisible = true;
-      }">
-        <el-button :icon="Aim" type="primary" plain>
-          分析探测 <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-        </el-button>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item :icon="Aim" command="dns">DNS 解析</el-dropdown-item>
-            <el-dropdown-item :icon="Aim" command="httpx">探活 (httpx)</el-dropdown-item>
-            <el-dropdown-item :icon="Connection" command="rustscan">端口扫描 (rustscan)</el-dropdown-item>
-            <el-dropdown-item :icon="Connection" command="naabu">端口扫描 (naabu)</el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
-
-      <el-button :icon="Document" @click="noteVisible = true">笔记</el-button>
-
-      <!-- 统计条 -->
-      <div class="stats-strip">
-        <span class="ss-item"><b class="ss-num ss-total">{{ stats.total }}</b> 总资产</span>
-        <span class="ss-sep" />
-        <span class="ss-item"><b class="ss-num ss-ip">{{ stats.ip }}</b> IP</span>
-        <span class="ss-item"><b class="ss-num ss-domain">{{ stats.domain }}</b> 域名</span>
-        <span class="ss-sep" />
-        <span class="ss-item"><b class="ss-num ss-alive">{{ stats.alive }}</b> 存活</span>
-        <span class="ss-item"><b class="ss-num ss-dead">{{ stats.dead }}</b> 死亡</span>
-        <span class="ss-item"><b class="ss-num ss-unprobed">{{ stats.unprobed }}</b> 未探活</span>
-        <span class="ss-sep" />
-        <span class="ss-item"><b class="ss-num ss-ports">{{ stats.ports }}</b> 端口</span>
+    <!-- 统计卡片 -->
+    <div class="stats-row">
+      <div class="stat-card stat-total">
+        <div class="stat-num">{{ stats.total }}</div>
+        <div class="stat-label">总资产</div>
       </div>
+      <div class="stat-card stat-ip">
+        <div class="stat-num">{{ stats.ip }}</div>
+        <div class="stat-label">IP</div>
+      </div>
+      <div class="stat-card stat-domain">
+        <div class="stat-num">{{ stats.domain }}</div>
+        <div class="stat-label">域名</div>
+      </div>
+      <div class="stat-card stat-alive">
+        <div class="stat-num">{{ stats.alive }}</div>
+        <div class="stat-label">存活</div>
+      </div>
+      <div class="stat-card stat-ports">
+        <div class="stat-num">{{ stats.ports }}</div>
+        <div class="stat-label">端口</div>
+      </div>
+    </div>
+
+    <!-- 工具栏：直接图标按钮 -->
+    <div class="toolbar">
+      <el-button :icon="Upload" @click="importVisible = true">导入</el-button>
+      <el-button :icon="Share" @click="subdomainVisible = true">子域名</el-button>
+      <el-divider direction="vertical" />
+      <el-button :icon="Aim" @click="dnsVisible = true">DNS</el-button>
+      <el-button :icon="Aim" @click="httpxVisible = true">探活</el-button>
+      <el-button :icon="Connection" @click="rustscanVisible = true">rustscan</el-button>
+      <el-button :icon="Connection" @click="naabuVisible = true">naabu</el-button>
     </div>
 
     <!-- 过滤 + 操作栏 -->
@@ -609,29 +590,15 @@ onMounted(async () => {
         清除排序 ({{ sorts.length }})
       </el-button>
       <div class="spacer" />
-      <el-dropdown trigger="click" @command="(c: string) => {
-        if (c === 'copy') copyVisible();
-        else if (c === 'txt') exportTXT();
-        else if (c === 'csv') exportCSV();
-        else if (c === 'delete') deleteVisible();
-      }">
-        <el-button size="small">
-          操作 <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-        </el-button>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item :icon="DocumentCopy" command="copy">复制可见</el-dropdown-item>
-            <el-dropdown-item :icon="Download" command="txt">导出 TXT</el-dropdown-item>
-            <el-dropdown-item :icon="Download" command="csv">导出 CSV</el-dropdown-item>
-            <el-dropdown-item :icon="Delete" command="delete" divided>删除可见</el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
+      <el-button size="small" :icon="DocumentCopy" @click="copyVisible">复制</el-button>
+      <el-button size="small" :icon="Download" @click="exportTXT">TXT</el-button>
+      <el-button size="small" :icon="Download" @click="exportCSV">CSV</el-button>
+      <el-button size="small" :icon="Delete" type="danger" plain @click="deleteVisible">删除</el-button>
     </div>
 
     <!-- 选中后的批量操作条 -->
     <div v-if="selected.length > 0" class="batch-bar">
-      已选中 {{ selected.length }} 条
+      <span class="batch-count">已选中 {{ selected.length }} 条</span>
       <el-dropdown trigger="click" @command="(tag: string) => { if (tag !== '__custom__') BatchAddTag(selected.map(a=>a.id), tag).then(refresh) }">
         <el-button size="small" type="primary">打标签</el-button>
         <template #dropdown>
@@ -695,16 +662,17 @@ onMounted(async () => {
   gap: 10px;
   box-sizing: border-box;
 }
+
+/* ── 顶部栏 ────────────────────────────────── */
 .header {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
-.header h2 {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 17px;
+.project-title {
+  font-size: 15px;
   font-weight: 600;
+  color: var(--text-primary);
 }
 .back-btn {
   font-size: 18px;
@@ -718,10 +686,50 @@ onMounted(async () => {
   font-size: 12px;
 }
 .header-search {
-  width: 280px;
+  width: 260px;
 }
 .spacer {
   flex: 1;
+}
+
+/* ── 统计卡片 ──────────────────────────────── */
+.stats-row {
+  display: flex;
+  gap: 12px;
+}
+.stat-card {
+  flex: 1;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+  border-top: 3px solid transparent;
+  transition: box-shadow 0.2s;
+}
+.stat-card:hover {
+  box-shadow: var(--shadow-md);
+}
+.stat-total { border-top-color: var(--text-primary); }
+.stat-ip    { border-top-color: var(--accent); }
+.stat-domain{ border-top-color: var(--info-purple); }
+.stat-alive { border-top-color: var(--success); }
+.stat-ports { border-top-color: var(--warning); }
+.stat-num {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.stat-total .stat-num { color: var(--text-primary); }
+.stat-ip .stat-num    { color: var(--accent); }
+.stat-domain .stat-num{ color: var(--info-purple); }
+.stat-alive .stat-num { color: var(--success); }
+.stat-ports .stat-num { color: var(--warning); }
+.stat-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
 }
 
 /* ── 工具栏 ────────────────────────────────── */
@@ -731,43 +739,10 @@ onMounted(async () => {
   gap: 8px;
   flex-wrap: wrap;
 }
-
-/* ── 统计条 ────────────────────────────────── */
-.stats-strip {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-left: auto;
-  padding: 4px 14px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: 12px;
-  color: var(--text-muted);
-  white-space: nowrap;
+.toolbar :deep(.el-divider--vertical) {
+  margin: 0 4px;
+  border-left-color: var(--border);
 }
-.ss-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.ss-num {
-  font-size: 14px;
-  font-weight: 700;
-  font-style: normal;
-}
-.ss-sep {
-  width: 1px;
-  height: 14px;
-  background: var(--border);
-}
-.ss-total { color: var(--text-primary); }
-.ss-ip { color: var(--accent); }
-.ss-domain { color: var(--info-purple); }
-.ss-alive { color: var(--success); }
-.ss-dead { color: var(--danger); }
-.ss-unprobed { color: var(--text-dimmed); }
-.ss-ports { color: var(--warning); }
 
 /* ── 过滤栏 ────────────────────────────────── */
 .filter-bar {
@@ -807,21 +782,26 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 6px 12px;
+  padding: 6px 14px;
   background: var(--bg-surface);
   border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
   border-radius: 6px;
-  color: var(--accent);
   font-size: 13px;
+}
+.batch-count {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 /* ── 表格 ──────────────────────────────────── */
 .table-wrap {
   flex: 1;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   overflow: hidden;
   background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
 }
 .host-link {
   color: var(--accent-hover);

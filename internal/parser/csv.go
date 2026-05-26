@@ -58,10 +58,11 @@ func ParseCSV(path, source string) ([]model.AssetEntry, CSVStats, error) {
 		stats.TotalRows++
 		for _, cell := range row {
 			for _, item := range ExtractFromValue(cell) {
-				if _, ok := seen[item.Host]; ok {
+				key := item.Host + "|" + item.Port
+				if _, ok := seen[key]; ok {
 					continue
 				}
-				seen[item.Host] = struct{}{}
+				seen[key] = struct{}{}
 				item.Source = source
 				entries = append(entries, item)
 				if item.Type == "ip" {
@@ -81,6 +82,11 @@ func ExtractFromValue(raw string) []model.AssetEntry {
 	seen := make(map[string]struct{})
 
 	add := func(host, typ, port string) {
+		// 通配符域名 *.example.com → example.com
+		host = strings.TrimPrefix(host, "*.")
+		if host == "" {
+			return
+		}
 		key := host + "|" + port
 		if _, ok := seen[key]; ok {
 			return

@@ -45,6 +45,9 @@ func RunRustscan(appCtx context.Context, jobID string, projectID int64, cfg Rust
 		if err != nil {
 			return fmt.Errorf("get domain hosts by network: %w", err)
 		}
+		if len(hosts) == 0 {
+			wruntime.EventsEmit(appCtx, "rustscan:log", "[!] 没有符合条件的域名，请先运行 DNS 解析")
+		}
 	} else {
 		typeFilter := ""
 		if cfg.OnlyDomain {
@@ -141,7 +144,11 @@ func RunRustscan(appCtx context.Context, jobID string, projectID int64, cfg Rust
 
 		var added int
 		if len(ports) > 0 {
-			added, _ = db.AddPortAssets(projectID, host, ports, "rustscan")
+			var dbErr error
+			added, dbErr = db.AddPortAssets(projectID, host, ports, "rustscan")
+			if dbErr != nil {
+				wruntime.EventsEmit(appCtx, "rustscan:log", fmt.Sprintf("[!] %s 写入端口资产失败: %v", host, dbErr))
+			}
 			totalNew += added
 			wruntime.EventsEmit(appCtx, "rustscan:log",
 				fmt.Sprintf("[+] %s 开放 %d 个端口 (新增 %d): %s",
@@ -207,7 +214,7 @@ func scanOneHost(ctx context.Context, host string, cfg RustscanConfig, logFn fun
 
 	cmd := exec.CommandContext(ctx, cfg.RustscanPath, args...)
 	hideWindow(cmd)
-	cmd.Stderr = nil
+	stderr, _ := cmd.StderrPipe()
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
@@ -215,6 +222,18 @@ func scanOneHost(ctx context.Context, host string, cfg RustscanConfig, logFn fun
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
+
+	// 读取 stderr（后台）
+	go func() {
+		sc := bufio.NewScanner(stderr)
+		sc.Buffer(make([]byte, 1024*1024), 4*1024*1024)
+		for sc.Scan() {
+			line := strings.TrimSpace(sc.Text())
+			if line != "" {
+				logFn("    [stderr] " + line)
+			}
+		}
+	}()
 
 	var ports []int
 	sc := bufio.NewScanner(stdout)

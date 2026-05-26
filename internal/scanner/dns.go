@@ -153,8 +153,14 @@ func RunDns(appCtx context.Context, jobID string, projectID int64, cfg DnsConfig
 
 		if res.Success {
 			atomic.AddInt64(&resolved, 1)
-			// 写入解析结果：给域名加标签 "DNS✓"，并把 IP 入库
-			added, _ := db.AddDnsResolvedIPs(projectID, res.Domain, res.IPs)
+			added, dbErr := db.AddDnsResolvedIPs(projectID, res.Domain, res.IPs)
+			if dbErr != nil {
+				wruntime.EventsEmit(appCtx, "dns:progress", map[string]any{
+					"domain":  res.Domain,
+					"error":   fmt.Sprintf("写入数据库失败: %v", dbErr),
+					"success": false,
+				})
+			}
 			atomic.AddInt64(&newIP, int64(added))
 
 			wruntime.EventsEmit(appCtx, "dns:progress", map[string]any{
@@ -169,8 +175,13 @@ func RunDns(appCtx context.Context, jobID string, projectID int64, cfg DnsConfig
 			})
 		} else {
 			atomic.AddInt64(&failed, 1)
-			// 标记域名为 DNS 解析失败
-			_ = db.TagDnsFailed(projectID, res.Domain)
+			if dbErr := db.TagDnsFailed(projectID, res.Domain); dbErr != nil {
+				wruntime.EventsEmit(appCtx, "dns:progress", map[string]any{
+					"domain":  res.Domain,
+					"error":   fmt.Sprintf("标记 DNS 失败标签出错: %v", dbErr),
+					"success": false,
+				})
+			}
 
 			wruntime.EventsEmit(appCtx, "dns:progress", map[string]any{
 				"domain":    res.Domain,

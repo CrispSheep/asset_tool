@@ -63,6 +63,10 @@ func RunHttpx(appCtx context.Context, jobID string, projectID int64, cfg HttpxCo
 		} else {
 			hosts = domainHosts
 		}
+		if len(hosts) == 0 {
+			wruntime.EventsEmit(appCtx, "httpx:error", "没有符合条件的域名，请先运行 DNS 解析")
+			return nil
+		}
 	} else {
 		var err error
 		typeFilter := ""
@@ -104,7 +108,10 @@ func RunHttpx(appCtx context.Context, jobID string, projectID int64, cfg HttpxCo
 	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
-	tmp.WriteString(strings.Join(hosts, "\n"))
+	if _, err := tmp.WriteString(strings.Join(hosts, "\n")); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write temp file: %w", err)
+	}
 	tmp.Close()
 
 	args := []string{
@@ -202,7 +209,16 @@ func RunHttpx(appCtx context.Context, jobID string, projectID int64, cfg HttpxCo
 					tech = string(b)
 				}
 			}
-			_ = db.UpdateProbeResult(projectID, dbHost, dbPort, "alive", statusCode, title, server, tech)
+			if dbErr := db.UpdateProbeResult(projectID, dbHost, dbPort, "alive", statusCode, title, server, tech); dbErr != nil {
+				wruntime.EventsEmit(appCtx, "httpx:progress", map[string]any{
+					"processed":   processed,
+					"total":       total,
+					"host":        host,
+					"status_code": statusCode,
+					"alive":       alive,
+					"db_error":    fmt.Sprintf("写入探活结果失败: %v", dbErr),
+				})
+			}
 		}
 
 		wruntime.EventsEmit(appCtx, "httpx:progress", map[string]any{
@@ -213,20 +229,31 @@ func RunHttpx(appCtx context.Context, jobID string, projectID int64, cfg HttpxCo
 			"alive":       alive,
 		})
 	}
-	if err := cmd.Wait(); err != nil && ctx.Err() == nil {
-		wruntime.EventsEmit(appCtx, "httpx:error", fmt.Sprintf("httpx exited: %v", err))
+	cmdErr := cmd.Wait()
+	if cmdErr != nil && ctx.Err() == nil {
+		wruntime.EventsEmit(appCtx, "httpx:error", fmt.Sprintf("httpx exited: %v", cmdErr))
 	}
 
 	cancelled := ctx.Err() != nil
 
-	if !cancelled {
+	// 只在 httpx 正常退出（无错误、非取消）时标记剩余 host 为 dead
+	if !cancelled && cmdErr == nil {
 		for _, h := range hosts {
 			if _, ok := responded[h]; ok {
 				continue
 			}
 			processed++
 			dbHost, dbPort := splitHostPort(h)
-			_ = db.UpdateProbeResult(projectID, dbHost, dbPort, "dead", nil, "", "", "[]")
+			if dbErr := db.UpdateProbeResult(projectID, dbHost, dbPort, "dead", nil, "", "", "[]"); dbErr != nil {
+				wruntime.EventsEmit(appCtx, "httpx:progress", map[string]any{
+					"processed":   processed,
+					"total":       total,
+					"host":        h,
+					"status_code": nil,
+					"alive":       alive,
+					"db_error":    fmt.Sprintf("标记 dead 失败: %v", dbErr),
+				})
+			}
 			wruntime.EventsEmit(appCtx, "httpx:progress", map[string]any{
 				"processed":   processed,
 				"total":       total,

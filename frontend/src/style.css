@@ -20,6 +20,9 @@
   --info-purple:#909399;
   --scrollbar-thumb:#c0c4cc;
   --scrollbar-hover:#909399;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+  --shadow-md: 0 2px 8px rgba(0,0,0,0.08);
+  --shadow-lg: 0 4px 16px rgba(0,0,0,0.10);
 }
 
 /* ── Dark Theme ───────────────────────────────────────── */
@@ -44,6 +47,9 @@
   --info-purple:#722ed1;
   --scrollbar-thumb:#3a3e4a;
   --scrollbar-hover:#4a4e5a;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.2);
+  --shadow-md: 0 2px 8px rgba(0,0,0,0.3);
+  --shadow-lg: 0 4px 16px rgba(0,0,0,0.4);
 }
 
 /* ── Element Plus dark mode overrides ─────────────────── */
